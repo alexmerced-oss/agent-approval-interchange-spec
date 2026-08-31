@@ -5,18 +5,18 @@ reviewed, but packages and tags are not published until the release discussion.
 
 Release gates:
 
-- [ ] Normative specification and schema review complete
-- [ ] Shared conformance corpus passes in all five libraries
-- [ ] Python wheel and sdist build and pass `twine check`
-- [ ] TypeScript package builds, type-checks, tests, audits, and packs
-- [ ] Go tests and vet pass
-- [ ] Rust fmt, clippy, tests, docs, and package dry-run pass
-- [ ] Java tests, static analysis, Javadocs, and package build pass on Java 17
-- [ ] GitHub CI is green
-- [ ] Package names and Maven coordinates confirmed
-- [ ] Release version and tag confirmed
+- [x] Normative specification and schema review complete
+- [x] Shared conformance corpus passes in all five libraries
+- [x] Python wheel and sdist build and pass `twine check`
+- [x] TypeScript package builds, type-checks, tests, audits, and packs
+- [x] Go tests and vet pass
+- [x] Rust fmt, clippy, tests, docs, and package dry-run pass
+- [x] Java tests, static analysis, Javadocs, and package build pass on Java 17
+- [x] GitHub CI is green
+- [x] Package names and Maven coordinates confirmed
+- [x] Release version and tag confirmed
 
-Proposed initial coordinates:
+Published 0.1.0 coordinates:
 
 - PyPI: `agent-approval-interchange`
 - npm: `agent-approval-interchange`

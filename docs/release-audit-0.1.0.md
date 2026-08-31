@@ -19,17 +19,17 @@
 - Java: 6 tests, compilation with all lint warnings denied, sources,
   Javadocs, and Maven package on Java 17
 
-## Registry check
+## Registry release
 
-On 2026-08-30, the proposed npm, PyPI, crates.io, and Maven coordinates had no
-matching published package. Registry ownership is not reserved until publish.
+On 2026-08-30, version 0.1.0 was published to PyPI, the Go module proxy,
+crates.io, Maven Central, and npm, in that order except that Java and Node were
+intentionally released last.
 
-## Release decision still required
+## Release decision
 
-- Confirm AAIS name and the 1.0 semantic boundary.
-- Decide whether the first package release is `0.1.0` while the specification
-  remains a release candidate, or whether all artifacts should begin at 1.0.0.
-- Confirm the proposed coordinates in `docs/release.md`.
+The initial support-library version is `0.1.0` while the specification remains
+a 1.0 release candidate. The AAIS name, semantic boundary, and registry
+coordinates are confirmed by publication.
 
 ## Final semantic review
 

@@ -2,7 +2,7 @@
 
 **A transport-neutral contract for asking a human to authorize an exact agent action.**
 
-Specification `1.0` release candidate · support libraries `0.1.0` · Draft
+Specification `1.0` release candidate · support libraries `0.1.0` · Released
 
 [Specification](spec/v1/SPEC.md) · [Security](spec/v1/security.md) · [Conformance](spec/v1/conformance.md) · [Integration guide](docs/integration.md)
 
@@ -69,7 +69,15 @@ conformance corpus for Python, TypeScript, Go, Rust, and Java. Each library can:
 - maintain a fail-closed, replay-safe pending-approval store;
 - emit and restore durable snapshots.
 
-No package has been published yet. See [release preparation](docs/release.md).
+Published packages:
+
+- [PyPI](https://pypi.org/project/agent-approval-interchange/0.1.0/)
+- [npm](https://www.npmjs.com/package/agent-approval-interchange/v/0.1.0)
+- [Go module](https://pkg.go.dev/github.com/alexmerced-oss/agent-approval-interchange-spec/go@v0.1.0)
+- [crates.io](https://crates.io/crates/agent-approval-interchange/0.1.0)
+- [Maven Central](https://central.sonatype.com/artifact/io.github.alexmercedcoder/agent-approval-interchange/0.1.0)
+
+See [release preparation](docs/release.md) for coordinates and verification.
 
 ## Repository layout
 
