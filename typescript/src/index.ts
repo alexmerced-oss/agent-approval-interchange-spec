@@ -49,6 +49,10 @@ export function validate(document: unknown): JsonObject {
     if (!choices.some((choice) => choice.decision === "deny" || choice.decision === "cancel")) {
       throw new ValidationError("/request/choices: at least one deny or cancel choice is required");
     }
+    const tuples = choices.map((choice) => `${String(choice.decision)}\u0000${String(choice.scope)}`);
+    if (new Set(tuples).size !== tuples.length) {
+      throw new ValidationError("/request/choices: decision and scope tuples must be unique");
+    }
     if (request.action_digest !== actionDigest(request.action as JsonObject)) {
       throw new ValidationError("/request/action_digest: does not match the canonical action");
     }
@@ -96,10 +100,10 @@ export interface CreateDecisionOptions {
   scope: Scope;
   actor: JsonObject;
   sequence: number;
+  stream?: string;
   decisionId?: string;
   eventId?: string;
   decidedAt?: string;
-  replacementArguments?: JsonObject;
 }
 
 export function createDecision(requestedDocument: JsonObject, options: CreateDecisionOptions): JsonObject {
@@ -112,12 +116,11 @@ export function createDecision(requestedDocument: JsonObject, options: CreateDec
     action_digest: request.action_digest, decided_at: decidedAt,
     decision: options.decision, scope: options.scope, actor: options.actor,
   };
-  if (options.replacementArguments) decision.replacement_arguments = options.replacementArguments;
   const envelope: JsonObject = {
     aais: "1.0", type: "approval.decided", id: options.eventId ?? id("evt"),
     occurred_at: decidedAt, sequence: options.sequence, decision,
   };
-  if (requested.stream) envelope.stream = requested.stream;
+  if (options.stream) envelope.stream = options.stream;
   return validate(envelope);
 }
 
@@ -167,9 +170,6 @@ export class ApprovalStore {
         (choice) => choice.decision === decision.decision && choice.scope === decision.scope,
       );
       if (!offered) { outcome = "invalid"; message = "The selected decision and scope were not offered."; }
-      else if (decision.replacement_arguments && offered.allow_edits !== true) {
-        outcome = "invalid"; message = "This approval choice does not allow argument edits.";
-      }
     }
     const resolvedAt = instant.toISOString();
     const resolution: JsonObject = {

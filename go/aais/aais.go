@@ -79,7 +79,6 @@ type Choice struct {
 	Decision         string         `json:"decision"`
 	Scope            string         `json:"scope"`
 	Label            string         `json:"label"`
-	AllowEdits       bool           `json:"allow_edits,omitempty"`
 	ScopeConstraints map[string]any `json:"scope_constraints,omitempty"`
 }
 
@@ -107,15 +106,14 @@ type Actor struct {
 
 // Decision is a response bound to one request and action digest.
 type Decision struct {
-	ID                   string         `json:"id"`
-	RequestID            string         `json:"request_id"`
-	ActionDigest         string         `json:"action_digest"`
-	DecidedAt            string         `json:"decided_at"`
-	Decision             string         `json:"decision"`
-	Scope                string         `json:"scope"`
-	Actor                Actor          `json:"actor"`
-	ReplacementArguments map[string]any `json:"replacement_arguments,omitempty"`
-	Extensions           map[string]any `json:"extensions,omitempty"`
+	ID           string         `json:"id"`
+	RequestID    string         `json:"request_id"`
+	ActionDigest string         `json:"action_digest"`
+	DecidedAt    string         `json:"decided_at"`
+	Decision     string         `json:"decision"`
+	Scope        string         `json:"scope"`
+	Actor        Actor          `json:"actor"`
+	Extensions   map[string]any `json:"extensions,omitempty"`
 }
 
 // Resolution is the authority's terminal result.
@@ -266,14 +264,14 @@ func CreateRequest(options CreateRequestOptions) (Envelope, error) {
 
 // CreateDecisionOptions configures a decision builder.
 type CreateDecisionOptions struct {
-	Decision             string
-	Scope                string
-	Actor                Actor
-	Sequence             uint64
-	DecisionID           string
-	EventID              string
-	DecidedAt            time.Time
-	ReplacementArguments map[string]any
+	Decision   string
+	Scope      string
+	Actor      Actor
+	Sequence   uint64
+	Stream     string
+	DecisionID string
+	EventID    string
+	DecidedAt  time.Time
 }
 
 // CreateDecision builds a decision bound to an approval.requested envelope.
@@ -296,8 +294,8 @@ func CreateDecision(requested Envelope, options CreateDecisionOptions) (Envelope
 	if eventID == "" {
 		eventID = newID("evt")
 	}
-	decision := &Decision{ID: decisionID, RequestID: requested.Request.ID, ActionDigest: requested.Request.ActionDigest, DecidedAt: at.UTC().Format(time.RFC3339Nano), Decision: options.Decision, Scope: options.Scope, Actor: options.Actor, ReplacementArguments: options.ReplacementArguments}
-	envelope := Envelope{AAIS: "1.0", Type: "approval.decided", ID: eventID, OccurredAt: decision.DecidedAt, Sequence: options.Sequence, Stream: requested.Stream, Decision: decision}
+	decision := &Decision{ID: decisionID, RequestID: requested.Request.ID, ActionDigest: requested.Request.ActionDigest, DecidedAt: at.UTC().Format(time.RFC3339Nano), Decision: options.Decision, Scope: options.Scope, Actor: options.Actor}
+	envelope := Envelope{AAIS: "1.0", Type: "approval.decided", ID: eventID, OccurredAt: decision.DecidedAt, Sequence: options.Sequence, Stream: options.Stream, Decision: decision}
 	if err := Validate(envelope); err != nil {
 		return Envelope{}, err
 	}
@@ -391,16 +389,22 @@ func validateRequest(r Request) error {
 		return &ValidationError{"invalid digest, risk, or choices"}
 	}
 	hasExit := false
+	seenChoices := map[string]bool{}
 	for _, c := range r.Choices {
 		if !slices.Contains([]string{"approve", "deny", "cancel"}, c.Decision) || !slices.Contains([]string{"once", "session", "persistent"}, c.Scope) || c.Label == "" {
 			return &ValidationError{"invalid choice"}
 		}
 		if c.Decision != "approve" {
 			hasExit = true
-			if c.Scope != "once" || c.AllowEdits {
-				return &ValidationError{"deny and cancel choices must use once and disallow edits"}
+			if c.Scope != "once" {
+				return &ValidationError{"deny and cancel choices must use once"}
 			}
 		}
+		key := c.Decision + "\x00" + c.Scope
+		if seenChoices[key] {
+			return &ValidationError{"decision and scope tuples must be unique"}
+		}
+		seenChoices[key] = true
 		if c.Scope != "once" && len(c.ScopeConstraints) == 0 {
 			return &ValidationError{"session and persistent choices require constraints"}
 		}
@@ -418,8 +422,8 @@ func validateDecision(d Decision) error {
 	if _, err := parseTime(d.DecidedAt); err != nil {
 		return err
 	}
-	if d.Decision != "approve" && (d.Scope != "once" || d.ReplacementArguments != nil) {
-		return &ValidationError{"deny and cancel decisions must use once and cannot edit arguments"}
+	if d.Decision != "approve" && d.Scope != "once" {
+		return &ValidationError{"deny and cancel decisions must use once"}
 	}
 	return nil
 }
@@ -516,16 +520,13 @@ func (s *Store) Decide(e Envelope, now time.Time, currentAction *Action) (Envelo
 	}
 	if outcome != "expired" && outcome != "stale" {
 		offered := false
-		edits := false
 		for _, c := range r.Choices {
 			if c.Decision == d.Decision && c.Scope == d.Scope {
-				offered, edits = true, c.AllowEdits
+				offered = true
 			}
 		}
 		if !offered {
 			outcome, message = "invalid", "The selected decision and scope were not offered."
-		} else if d.ReplacementArguments != nil && !edits {
-			outcome, message = "invalid", "This choice does not allow edits."
 		}
 	}
 	at := now.UTC().Format(time.RFC3339Nano)

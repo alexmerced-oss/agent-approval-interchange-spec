@@ -8,6 +8,11 @@ execution calls the broker; the broker persists and publishes the request; any
 connected presenter may render it; the authenticated decision returns to the
 same broker. The terminal presenter is a fallback, not a second policy path.
 
+Assign the broker and every bidirectional presenter distinct stream IDs. The
+broker owns ordering and snapshots for its event stream; presenter decisions
+are idempotent commands on presenter-owned streams. Never assume sequence
+numbers from different streams are comparable.
+
 ## AG-UI adapter
 
 Represent the pause as an AG-UI `tool_call` interrupt. Put the complete AAIS
@@ -36,6 +41,11 @@ remains available for non-sensitive structured input requested by the server.
 Send one AAIS JSON envelope per text frame. After reconnect, request a snapshot
 and then consume events after its `as_of_sequence`. Decisions travel in the
 opposite direction on the same authenticated connection.
+
+If a UI lets the actor edit an action, submit the edit to the authority as a
+proposal. The authority cancels or supersedes the original request and emits a
+new `approval.requested` envelope. Do not put edited arguments into the old
+decision.
 
 ## NDJSON stdio profile
 

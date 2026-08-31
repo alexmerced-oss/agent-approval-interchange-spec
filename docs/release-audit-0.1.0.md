@@ -10,7 +10,7 @@
 
 ## Verified locally
 
-- Python: 8 tests, Ruff, isolated wheel/sdist build, and Twine checks
+- Python: 9 tests, Ruff, isolated wheel/sdist build, and Twine checks
 - TypeScript: typecheck, 7 tests, ESM/CJS/types build, zero-audit result,
   and npm tarball dry run
 - Go: tests and vet with Go 1.26.7; module declares Go 1.23
@@ -30,3 +30,13 @@ matching published package. Registry ownership is not reserved until publish.
 - Decide whether the first package release is `0.1.0` while the specification
   remains a release candidate, or whether all artifacts should begin at 1.0.0.
 - Confirm the proposed coordinates in `docs/release.md`.
+
+## Final semantic review
+
+The pre-release boundary review retained AAIS as a narrow authorization
+interchange rather than expanding it into a runtime or policy protocol. It
+removed approve-with-edits from 1.0, separated accepted authorization from
+execution success, assigned sequence streams to individual producers, aligned
+opaque secret references with canonical action binding, rejected ambiguous
+choice tuples, and documented multi-presenter races, revocation expectations,
+resource rebinding, and explicit non-goals.

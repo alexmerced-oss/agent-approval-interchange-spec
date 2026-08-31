@@ -33,3 +33,26 @@ portable status surface.
 MCP elicitation and AG-UI interrupts already cover structured user input. An
 approval changes what an agent may do, so it needs stricter scope, digest,
 expiry, audit, concurrency, and revalidation rules.
+
+## Why 1.0 has no approve-with-edits
+
+An edit creates a different action. Treating edited arguments as the same
+approval makes the resolution digest ambiguous and weakens the protocol's main
+security property. A UI may still offer editing, but the authority turns the
+result into a fresh request and visibly supersedes the old one.
+
+## Why approval stops before execution
+
+Execution protocols need retries, outputs, cancellation, compensation, and
+domain-specific success semantics. AAIS records the smaller authorization fact.
+This also lets an authority require several independent approvals without any
+single approval falsely claiming the action ran.
+
+## Why the initial surface is neither a policy nor runtime protocol
+
+Saved-rule management, quorum, batches, authentication, signatures, and run
+events are real needs, but standardizing them here would overlap established
+runtimes and force unrelated policy models into AAIS. Version 1.0 supplies the
+portable approval unit those systems can compose. New event families should be
+added only when multiple independent implementations cannot safely compose the
+missing behavior outside AAIS.

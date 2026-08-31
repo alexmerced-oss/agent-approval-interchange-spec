@@ -107,10 +107,10 @@ fn builders_are_valid() {
                 authenticated_by: None,
             },
             sequence: 2,
+            stream: Some("presenter_alex".into()),
             decision_id: None,
             event_id: None,
             decided_at: Some(at + chrono::Duration::minutes(1)),
-            replacement_arguments: None,
         },
     )
     .unwrap();

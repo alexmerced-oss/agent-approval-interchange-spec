@@ -9,3 +9,9 @@
   fail-closed security semantics.
 - Document AG-UI, MCP, HTTP/SSE, WebSocket, and NDJSON integration profiles.
 - Add parity support libraries for Python, TypeScript, Go, Rust, and Java.
+- Require edited actions to become new requests instead of weakening exact
+  action binding through approve-with-edits.
+- Clarify producer-owned sequence streams, opaque credential bindings,
+  authorization-versus-execution semantics, saved-scope revocation, and
+  resource-rebinding risks.
+- Reject ambiguous duplicate decision/scope choice tuples.

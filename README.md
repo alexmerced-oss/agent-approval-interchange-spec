@@ -35,7 +35,8 @@ grant a broader scope than the harness offered.
     "risk": {"level": "medium", "reasons": ["executes a local process"]},
     "choices": [
       {"decision": "approve", "scope": "once", "label": "Allow once"},
-      {"decision": "approve", "scope": "session", "label": "Allow for this session"},
+      {"decision": "approve", "scope": "session", "label": "Allow for this session",
+       "scope_constraints": {"action_name": "shell.exec"}},
       {"decision": "deny", "scope": "once", "label": "Deny"}
     ]
   }

@@ -67,6 +67,9 @@ def validate(document: Mapping[str, Any]) -> JsonObject:
         request = candidate["request"]
         if not any(c["decision"] in {"deny", "cancel"} for c in request["choices"]):
             raise ValidationError("/request/choices: at least one deny or cancel choice is required")
+        tuples = [(choice["decision"], choice["scope"]) for choice in request["choices"]]
+        if len(tuples) != len(set(tuples)):
+            raise ValidationError("/request/choices: decision and scope tuples must be unique")
         expected = action_digest(request["action"])
         if request["action_digest"] != expected:
             raise ValidationError("/request/action_digest: does not match the canonical action")
@@ -140,10 +143,10 @@ def create_decision(
     scope: str,
     actor: Mapping[str, Any],
     sequence: int,
+    stream: str | None = None,
     decision_id: str | None = None,
     event_id: str | None = None,
     decided_at: str | None = None,
-    replacement_arguments: Mapping[str, Any] | None = None,
 ) -> JsonObject:
     """Create a decision bound to a requested envelope."""
 
@@ -160,8 +163,6 @@ def create_decision(
         "scope": scope,
         "actor": dict(actor),
     }
-    if replacement_arguments is not None:
-        body["replacement_arguments"] = dict(replacement_arguments)
     envelope: JsonObject = {
         "aais": "1.0",
         "type": "approval.decided",
@@ -170,8 +171,8 @@ def create_decision(
         "sequence": sequence,
         "decision": body,
     }
-    if "stream" in requested:
-        envelope["stream"] = requested["stream"]
+    if stream is not None:
+        envelope["stream"] = stream
     return validate(envelope)
 
 
@@ -244,8 +245,6 @@ class ApprovalStore:
             )
             if offered is None:
                 outcome, message = "invalid", "The selected decision and scope were not offered."
-            elif "replacement_arguments" in body and not offered.get("allow_edits", False):
-                outcome, message = "invalid", "This approval choice does not allow argument edits."
         resolved_at = instant.astimezone(timezone.utc).isoformat().replace("+00:00", "Z")
         result: JsonObject = {
             "aais": "1.0",

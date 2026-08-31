@@ -7,6 +7,7 @@ An implementation claims **Core** conformance when it:
 3. rejects decisions that are expired, stale, or not among offered choices;
 4. treats identical duplicate decisions idempotently and conflicts atomically;
 5. passes through namespaced extensions without interpreting them as authority.
+6. rejects duplicate decision/scope choice tuples and edited-action decisions.
 
 It claims **Durable** conformance when it additionally:
 

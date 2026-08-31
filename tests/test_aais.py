@@ -113,3 +113,10 @@ def test_rejects_wrong_digest_and_missing_denial() -> None:
     request["request"]["choices"] = [request["request"]["choices"][0]]
     with pytest.raises(ValidationError, match="deny or cancel"):
         validate(request)
+
+
+def test_rejects_ambiguous_duplicate_choice_tuple() -> None:
+    request = load_example("shell-approval.json")
+    request["request"]["choices"].append(copy.deepcopy(request["request"]["choices"][0]))
+    with pytest.raises(ValidationError, match="tuples must be unique"):
+        validate(request)

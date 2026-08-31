@@ -90,14 +90,13 @@
         "decision": { "enum": ["approve", "deny", "cancel"] },
         "scope": { "enum": ["once", "session", "persistent"] },
         "label": { "type": "string", "minLength": 1, "maxLength": 200 },
-        "allow_edits": { "type": "boolean" },
         "scope_constraints": { "type": "object", "minProperties": 1 }
       },
       "additionalProperties": false,
       "allOf": [
         {
           "if": { "properties": { "decision": { "enum": ["deny", "cancel"] } }, "required": ["decision"] },
-          "then": { "properties": { "scope": { "const": "once" }, "allow_edits": { "const": false } } }
+          "then": { "properties": { "scope": { "const": "once" } } }
         },
         {
           "if": { "properties": { "scope": { "enum": ["session", "persistent"] } }, "required": ["scope"] },
@@ -144,14 +143,13 @@
         "decision": { "enum": ["approve", "deny", "cancel"] },
         "scope": { "enum": ["once", "session", "persistent"] },
         "actor": { "$ref": "#/$defs/actor" },
-        "replacement_arguments": { "type": "object" },
         "extensions": { "$ref": "#/$defs/extensions" }
       },
       "additionalProperties": false,
       "allOf": [
         {
           "if": { "properties": { "decision": { "enum": ["deny", "cancel"] } }, "required": ["decision"] },
-          "then": { "properties": { "scope": { "const": "once" } }, "not": { "required": ["replacement_arguments"] } }
+          "then": { "properties": { "scope": { "const": "once" } } }
         }
       ]
     },

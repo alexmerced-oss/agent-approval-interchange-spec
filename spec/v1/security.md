@@ -14,6 +14,9 @@ model, or transport trusted.
 - Never serialize credentials, authentication secrets, or private reasoning.
 - Preserve redaction in events, snapshots, telemetry, and error messages.
 - Resolve pending approvals when their session, job, or node is cancelled.
+- Treat model-authored summaries, risk labels, choices, and actor claims as
+  untrusted until the authority derives or validates them.
+- Treat approval as authorization only, not evidence that execution succeeded.
 
 ## Threats
 
@@ -48,6 +51,26 @@ presentation aids. Presenters should render both the summary and the important
 structured fields, visibly indicate redaction, and never hide critical risk or
 scope information behind an optional expansion.
 
+Unicode confusables, terminal control characters, abbreviated paths, and
+truncated destinations can make two actions appear equivalent. Presenters
+should escape control characters and make complete authority-relevant values
+available before consent.
+
+### Resource rebinding
+
+A digest binds JSON values, not the external world. Authorities must revalidate
+symlink targets, file identities, DNS and redirect destinations, cloud-resource
+identities, credential principals, and comparable mutable bindings immediately
+before execution. A materially different resolved resource is stale even when
+the original path or URL string is unchanged.
+
+### Hidden values
+
+The transmitted action and the hashed action are the same object. Secrets are
+represented by opaque references, never by hashing an undisclosed alternate
+action. An opaque reference must identify the account or authority boundary
+strongly enough to detect a material substitution.
+
 ### Denial of service
 
 Authorities should bound request size, number of pending approvals per actor,
@@ -58,5 +81,5 @@ notifications without silently deciding them.
 
 AAIS does not define authentication, authorization policy evaluation,
 cryptographic signatures, transport encryption, credential exchange, sandbox
-enforcement, or tool correctness. Bindings may add these controls without
-changing AAIS documents.
+enforcement, execution success, quorum, or tool correctness. Bindings may add
+these controls without changing AAIS documents.

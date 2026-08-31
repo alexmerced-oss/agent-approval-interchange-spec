@@ -88,8 +88,6 @@ pub struct Choice {
     pub decision: String,
     pub scope: String,
     pub label: String,
-    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
-    pub allow_edits: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub scope_constraints: Option<Map<String, Value>>,
 }
@@ -133,8 +131,6 @@ pub struct Decision {
     pub decision: String,
     pub scope: String,
     pub actor: Actor,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub replacement_arguments: Option<Map<String, Value>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub extensions: Option<Map<String, Value>>,
 }
@@ -281,10 +277,10 @@ pub struct CreateDecisionOptions {
     pub scope: String,
     pub actor: Actor,
     pub sequence: u64,
+    pub stream: Option<String>,
     pub decision_id: Option<String>,
     pub event_id: Option<String>,
     pub decided_at: Option<DateTime<Utc>>,
-    pub replacement_arguments: Option<Map<String, Value>>,
 }
 
 /// Build a decision bound to an `approval.requested` envelope.
@@ -307,7 +303,6 @@ pub fn create_decision(requested: &Envelope, options: CreateDecisionOptions) -> 
         decision: options.decision,
         scope: options.scope,
         actor: options.actor,
-        replacement_arguments: options.replacement_arguments,
         extensions: None,
     };
     let envelope = Envelope {
@@ -318,7 +313,7 @@ pub fn create_decision(requested: &Envelope, options: CreateDecisionOptions) -> 
             .unwrap_or_else(|| format!("evt_{}", Uuid::new_v4().simple())),
         occurred_at: decision.decided_at.clone(),
         sequence: options.sequence,
-        stream: requested.stream.clone(),
+        stream: options.stream,
         extensions: None,
         request: None,
         decision: Some(decision),
@@ -448,6 +443,7 @@ fn validate_request(r: &Request) -> Result<()> {
         ));
     }
     let mut exit = false;
+    let mut seen = std::collections::HashSet::new();
     for c in &r.choices {
         if !["approve", "deny", "cancel"].contains(&c.decision.as_str())
             || !["once", "session", "persistent"].contains(&c.scope.as_str())
@@ -457,11 +453,16 @@ fn validate_request(r: &Request) -> Result<()> {
         }
         if c.decision != "approve" {
             exit = true;
-            if c.scope != "once" || c.allow_edits {
+            if c.scope != "once" {
                 return Err(ApprovalError::Validation(
                     "deny/cancel choice invalid".into(),
                 ));
             }
+        }
+        if !seen.insert((c.decision.as_str(), c.scope.as_str())) {
+            return Err(ApprovalError::Validation(
+                "decision and scope tuples must be unique".into(),
+            ));
         }
         if c.scope != "once" && c.scope_constraints.as_ref().is_none_or(Map::is_empty) {
             return Err(ApprovalError::Validation(
@@ -490,7 +491,7 @@ fn validate_decision(d: &Decision) -> Result<()> {
         return Err(ApprovalError::Validation("invalid decision".into()));
     }
     parse_time(&d.decided_at)?;
-    if d.decision != "approve" && (d.scope != "once" || d.replacement_arguments.is_some()) {
+    if d.decision != "approve" && d.scope != "once" {
         return Err(ApprovalError::Validation(
             "deny/cancel decision invalid".into(),
         ));
@@ -599,16 +600,11 @@ impl ApprovalStore {
         {
             outcome = "stale";
             message = "The decision does not match the current action.";
-        } else if let Some(choice) = r
+        } else if r
             .choices
             .iter()
-            .find(|c| c.decision == d.decision && c.scope == d.scope)
+            .all(|c| c.decision != d.decision || c.scope != d.scope)
         {
-            if d.replacement_arguments.is_some() && !choice.allow_edits {
-                outcome = "invalid";
-                message = "This choice does not allow edits.";
-            }
-        } else {
             outcome = "invalid";
             message = "The selected decision and scope were not offered.";
         }

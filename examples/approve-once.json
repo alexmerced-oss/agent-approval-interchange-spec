@@ -3,8 +3,8 @@
   "type": "approval.decided",
   "id": "evt_decision_001",
   "occurred_at": "2026-08-30T18:01:00Z",
-  "sequence": 42,
-  "stream": "session_s1",
+  "sequence": 1,
+  "stream": "presenter_alex",
   "decision": {
     "id": "dec_001",
     "request_id": "apr_shell_001",

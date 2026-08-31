@@ -33,13 +33,19 @@ Every document is a JSON object with:
 - `type`: one of the event types in section 4;
 - `id`: a unique event identifier;
 - `occurred_at`: an RFC 3339 timestamp with an explicit offset;
-- `sequence`: a non-negative integer monotonically increasing within `stream`;
+- `sequence`: a non-negative integer monotonically increasing within a stream
+  owned by one producer;
 - `stream`: optional stable stream identifier;
 - exactly one event payload selected by `type`;
 - optional `extensions`, whose keys contain a reverse-DNS or URI namespace.
 
 Unknown top-level fields are invalid. Consumers MUST ignore unknown keys inside
 `extensions`.
+
+A producer MUST NOT write into another producer's stream. In a bidirectional
+binding, the authority and each presenter use distinct stream identifiers and
+sequence spaces. Sequence establishes order only inside one producer stream,
+not a global order. Durable bindings MUST provide `stream`.
 
 ## 4. Event types
 
@@ -58,12 +64,12 @@ Carries `decision`. Required fields are `id`, `request_id`, `action_digest`,
 
 `decision` is `approve`, `deny`, or `cancel`. `scope` is `once`, `session`, or
 `persistent`. A decision tuple `(decision, scope)` MUST exactly match a choice
-offered by the request. Deny and cancel use `once`.
+offered by the request, and choice tuples MUST be unique within a request. Deny
+and cancel use `once`.
 
-The optional `replacement_arguments` represents approve-with-edits. Its full
-value replaces the original action arguments. It is allowed only when the
-chosen request choice has `allow_edits: true`; the authority MUST recompute the
-digest and may require a new approval if policy says the edit is material.
+AAIS 1.0 does not support approve-with-edits. If an actor edits an argument,
+the authority MUST cancel or supersede the old request and emit a new request
+with a new identifier and action digest. This preserves exact-action consent.
 
 ### 4.3 `approval.resolved`
 
@@ -79,6 +85,9 @@ Carries `resolution`, the authority's terminal result. `outcome` is one of:
 
 A resolution includes the request and decision identifiers when applicable,
 the action digest, resolution time, and a safe human-readable explanation.
+`approved` means the authorization decision was accepted. It does not assert
+that execution began or succeeded; execution lifecycle belongs to the embedding
+runtime.
 
 ### 4.4 `approval.snapshot`
 
@@ -100,6 +109,12 @@ approval state.
 UTF-8 RFC 8785 canonical JSON encoding of the `action` object. The digest binds
 the decision to every standard action field, including arguments.
 
+Producers MUST supply RFC 7493 I-JSON-compatible action values as required by
+RFC 8785: no duplicate object names, strings represent Unicode data, and
+numbers are interoperable IEEE 754 values. Integers outside the exact range
+`-(2^53-1)` through `2^53-1` SHOULD be encoded as strings. Consumers SHOULD
+reject non-interoperable inputs before calculating a digest.
+
 The authority MUST compare the decision digest to both the original request
 and the action it is about to execute. A mismatch resolves as `stale` and MUST
 NOT execute.
@@ -112,14 +127,19 @@ An action has:
   `process.exec`, `network.request`, or `agent.delegate`;
 - `name`: stable implementation action or tool name;
 - `summary`: concise description of what will occur;
-- `arguments`: exact JSON arguments, possibly replaced by a redacted object;
+- `arguments`: exact JSON arguments, with secrets represented by stable opaque
+  credential or transaction references;
 - optional `resource`, `working_directory`, `effects`, and `presentation`.
 
-If arguments are redacted, `presentation.redacted` MUST be true and the
-authority MUST compute `action_digest` from the unredacted action. It MUST also
-provide `presentation.binding_hint` that tells the actor what hidden values are
-bound (for example, "API token omitted"). A presenter MUST visibly indicate
-redaction.
+The action transmitted in the AAIS document is the action canonicalized for
+`action_digest`; a producer MUST NOT hash a different hidden action. Secret
+material MUST remain outside AAIS. When a runtime value is represented by an
+opaque reference, `presentation.redacted` MUST be true and
+`presentation.binding_hint` MUST explain the identity that is bound (for
+example, "credential for account 123; token omitted"). The reference, account,
+and authority-relevant destination are part of the hashed action. A presenter
+MUST visibly indicate the opaque binding. Resolving a reference to a different
+account, resource boundary, or principal makes the approval stale.
 
 `effects` is advisory and may list filesystem paths, network origins, subprocess
 commands, external recipients, or other expected effects. It does not grant
@@ -137,6 +157,8 @@ project or resource, requester, and action summary before accepting input.
 `risk.level` is `low`, `medium`, `high`, or `critical`. `risk.reasons` is a
 non-empty list of display-safe explanations. Risk is advisory: clients MUST NOT
 infer authority from it or silently auto-approve based only on this field.
+The authority, not model-authored prose, is responsible for the offered risk,
+choices, and structured action presented for approval.
 
 ## 9. Scopes
 
@@ -151,6 +173,12 @@ MUST be data interpreted by the authority and SHOULD identify the action name,
 resource boundary, argument matcher, and expiry. A client MUST NOT broaden,
 merge, or synthesize constraints.
 
+The presenter MUST show the selected scope and an authority-generated,
+human-readable explanation of its constraints before submission. An authority
+offering `persistent` MUST provide a discoverable way to inspect and revoke the
+resulting saved rule. Rule identifiers, CRUD, and policy synchronization remain
+outside AAIS 1.0.
+
 AAIS does not define a universal policy language. Authorities MUST treat
 unknown constraints as non-matching.
 
@@ -162,17 +190,26 @@ unknown constraints as non-matching.
 4. The authority validates schema, authentication, offered choice, digest,
    expiry, current action, and policy.
 5. The authority atomically records one `approval.resolved` outcome before
-   executing an approved action.
+   handing an approved action to the embedding executor.
 
 Duplicate identical decisions MUST be idempotent and return the same
 resolution. A different decision after resolution produces `conflict`. The
 authority MUST serialize competing decisions per request.
 
+The authority MUST derive or verify `actor` from the authenticated channel and
+MUST NOT trust an actor supplied only in a request body. If multiple presenters
+race, the first valid atomic resolution wins and every other presenter receives
+or observes the terminal result. A request authorizes one atomic action. Batches,
+partial approval, quorum approval, and dependent approvals are orchestrated by
+the embedding runtime as separate requests.
+
 ## 11. Expiry and cancellation
 
-When `expires_at` is present, a decision after that instant MUST resolve as
-`expired`. Authorities SHOULD set a finite expiry for blocking requests. A
-session or job cancellation MUST resolve its pending requests as `cancelled`.
+When `expires_at` is present, a decision at or after that instant MUST resolve
+as `expired`. The authority's clock controls; presenter clocks are advisory.
+Authorities SHOULD set a finite expiry for blocking requests. A session or job
+cancellation MUST atomically resolve its pending requests as `cancelled`; a
+concurrent or later approval then loses the race and MUST NOT execute.
 
 ## 12. Authentication and transport
 
@@ -207,5 +244,16 @@ occur outside AAIS. Logs and snapshots MUST preserve redaction.
 
 Extensions belong under `extensions`. Standard fields added compatibly require
 a new AAIS minor version. Incompatible semantics require a new major version.
-An implementation that cannot enforce a received field MUST fail closed when
-that field affects authority.
+Extensions MUST NOT silently alter core authority semantics. A binding that
+defines an authority-bearing extension MUST negotiate support out of band and
+fail closed when either peer cannot enforce it; otherwise unknown extensions
+are observational and ignored.
+
+## 16. Explicit non-goals and composition
+
+AAIS 1.0 deliberately does not define execution results, chat or model events,
+tool discovery, general form input, credential exchange, policy-rule CRUD,
+transport authentication, signatures, multi-party quorum, or batch/partial
+approval. Runtimes compose those concerns with AAIS and correlate them using
+request, run, task, graph, and node identifiers. An approved AAIS resolution is
+one authorization fact, never a substitute for those protocols.
