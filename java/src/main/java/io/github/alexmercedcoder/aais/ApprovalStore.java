@@ -14,16 +14,30 @@ public final class ApprovalStore {
   private final Map<String,ObjectNode> pending=new HashMap<>(),resolutions=new HashMap<>();
   private final Map<String,String> fingerprints=new HashMap<>(); private long lastSequence;
 
-  /** Add a pending request idempotently. */
+  /** Add a pending request idempotently.
+   * @param envelope requested envelope
+   */
   public synchronized void add(ObjectNode envelope){Aais.validate(envelope);if(!"approval.requested".equals(envelope.path("type").asText()))throw new AaisException("add requires approval.requested");String id=envelope.path("request").path("id").asText();ObjectNode previous=pending.get(id);if(previous!=null&&!previous.equals(envelope))throw new AaisException("request already exists with different content");pending.put(id,envelope.deepCopy());lastSequence=Math.max(lastSequence,envelope.path("sequence").asLong());}
 
-  /** Validate and atomically resolve a decision. */
+  /** Validate and atomically resolve a decision.
+   * @param envelope decision envelope
+   * @param now authority clock instant
+   * @param currentAction optional action about to execute
+   * @return terminal resolution envelope
+   */
   public synchronized ObjectNode decide(ObjectNode envelope,OffsetDateTime now,JsonNode currentAction){Aais.validate(envelope);if(!"approval.decided".equals(envelope.path("type").asText()))throw new AaisException("decide requires approval.decided");ObjectNode decision=(ObjectNode)envelope.path("decision");String requestId=decision.path("request_id").asText(),fingerprint=Aais.actionDigest(decision);if(resolutions.containsKey(requestId)){if(fingerprint.equals(fingerprints.get(requestId)))return resolutions.get(requestId).deepCopy();throw new AaisException("request already resolved by another decision");}ObjectNode requested=pending.get(requestId);if(requested==null)throw new AaisException("unknown pending request");ObjectNode request=(ObjectNode)requested.path("request");String value=decision.path("decision").asText(),outcome="cancelled",message="Approval cancelled.";if("approve".equals(value)){outcome="approved";message="Approval accepted.";}else if("deny".equals(value)){outcome="denied";message="Action denied.";}if(request.has("expires_at")&&!now.isBefore(Aais.time(request.path("expires_at").asText()))){outcome="expired";message="Approval request expired.";}else if(!decision.path("action_digest").asText().equals(request.path("action_digest").asText())||(currentAction!=null&&!Aais.actionDigest(currentAction).equals(request.path("action_digest").asText()))){outcome="stale";message="The decision does not match the current action.";}else{JsonNode offered=null;for(JsonNode choice:request.path("choices"))if(choice.path("decision").asText().equals(value)&&choice.path("scope").asText().equals(decision.path("scope").asText()))offered=choice;if(offered==null){outcome="invalid";message="The selected decision and scope were not offered.";}else if(decision.has("replacement_arguments")&&!offered.path("allow_edits").asBoolean(false)){outcome="invalid";message="This choice does not allow edits.";}}
     lastSequence=Math.max(lastSequence+1,envelope.path("sequence").asLong());String at=now.withOffsetSameInstant(ZoneOffset.UTC).toString();ObjectNode resolution=Aais.JSON.createObjectNode().put("id","res_"+decision.path("id").asText()).put("request_id",requestId).put("decision_id",decision.path("id").asText()).put("action_digest",request.path("action_digest").asText()).put("resolved_at",at).put("outcome",outcome).put("message",message);if("approved".equals(outcome)||"denied".equals(outcome))resolution.put("effective_scope",decision.path("scope").asText());ObjectNode result=Aais.JSON.createObjectNode().put("aais","1.0").put("type","approval.resolved").put("id","evt_res_"+decision.path("id").asText()).put("occurred_at",at).put("sequence",lastSequence);if(requested.has("stream"))result.set("stream",requested.path("stream"));result.set("resolution",resolution);Aais.validate(result);pending.remove(requestId);resolutions.put(requestId,result);fingerprints.put(requestId,fingerprint);return result.deepCopy();}
 
-  /** Return a durable snapshot of unresolved requests. */
+  /** Return a durable snapshot of unresolved requests.
+   * @param stream optional stream identifier
+   * @param now snapshot clock instant, or null for now
+   * @return validated snapshot envelope
+   */
   public synchronized ObjectNode snapshot(String stream,OffsetDateTime now){OffsetDateTime instant=now==null?OffsetDateTime.now(ZoneOffset.UTC):now;ObjectNode result=Aais.JSON.createObjectNode().put("aais","1.0").put("type","approval.snapshot").put("id","evt_"+UUID.randomUUID().toString().replace("-","")).put("occurred_at",instant.withOffsetSameInstant(ZoneOffset.UTC).toString()).put("sequence",lastSequence);if(stream!=null)result.put("stream",stream);ObjectNode body=result.putObject("snapshot").put("as_of_sequence",lastSequence);ArrayNode list=body.putArray("pending");pending.values().forEach(item->{JsonNode request=item.path("request");if(!request.has("expires_at")||instant.isBefore(Aais.time(request.path("expires_at").asText())))list.add(request);});Aais.validate(result);return result;}
 
-  /** Restore the unresolved set from a validated snapshot. */
+  /** Restore the unresolved set from a validated snapshot.
+   * @param envelope snapshot envelope
+   * @return restored store
+   */
   public static ApprovalStore fromSnapshot(ObjectNode envelope){Aais.validate(envelope);if(!"approval.snapshot".equals(envelope.path("type").asText()))throw new AaisException("fromSnapshot requires approval.snapshot");ApprovalStore store=new ApprovalStore();store.lastSequence=envelope.path("snapshot").path("as_of_sequence").asLong();for(JsonNode request:envelope.path("snapshot").path("pending")){ObjectNode wrapper=Aais.JSON.createObjectNode().put("aais","1.0").put("type","approval.requested").put("id","restore_"+request.path("id").asText()).put("occurred_at",request.path("created_at").asText()).put("sequence",store.lastSequence);if(envelope.has("stream"))wrapper.set("stream",envelope.path("stream"));wrapper.set("request",request);store.add(wrapper);}return store;}
 }

@@ -19,14 +19,19 @@ import org.erdtman.jcs.JsonCanonicalizer;
 
 /** AAIS parsing, canonical action binding, and Core validation. */
 public final class Aais {
+  /** Supported AAIS document-model version. */
   public static final String VERSION = "1.0";
+  /** Shared JSON mapper used by builders and integrations. */
   public static final ObjectMapper JSON = new ObjectMapper();
   private static final Pattern ID = Pattern.compile("^[A-Za-z0-9][A-Za-z0-9._:-]{0,199}$");
   private static final Pattern DIGEST = Pattern.compile("^sha256:[0-9a-f]{64}$");
   private static final Set<String> TOP_LEVEL = Set.of("aais", "type", "id", "occurred_at", "sequence", "stream", "extensions", "request", "decision", "resolution", "snapshot", "activity");
   private Aais() {}
 
-  /** Parse one JSON envelope and reject malformed or unknown top-level fields. */
+  /** Parse one JSON envelope and reject malformed or unknown top-level fields.
+   * @param json serialized AAIS envelope
+   * @return validated defensive copy
+   */
   public static ObjectNode parse(String json) {
     try {
       JsonNode value = JSON.readTree(json);
@@ -36,7 +41,10 @@ public final class Aais {
     } catch (JsonProcessingException error) { throw new AaisException("invalid JSON", error); }
   }
 
-  /** Compute the RFC 8785 / SHA-256 action binding. */
+  /** Compute the RFC 8785 / SHA-256 action binding.
+   * @param action exact action object
+   * @return lowercase {@code sha256:} binding
+   */
   public static String actionDigest(JsonNode action) {
     try {
       byte[] canonical = new JsonCanonicalizer(action.toString()).getEncodedUTF8();
@@ -44,13 +52,34 @@ public final class Aais {
     } catch (IOException | NoSuchAlgorithmException error) { throw new AaisException("cannot canonicalize action", error); }
   }
 
-  /** Build and validate an approval.requested envelope. */
+  /** Build and validate an approval.requested envelope.
+   * @param action exact proposed action
+   * @param origin execution provenance
+   * @param risk display-safe risk assessment
+   * @param choices authority-offered choices
+   * @param sequence stream sequence
+   * @param stream optional stream identifier
+   * @param createdAt creation time, or null for now
+   * @param expiresAt optional expiry
+   * @return validated request envelope
+   */
   public static ObjectNode createRequest(ObjectNode action,ObjectNode origin,ObjectNode risk,ArrayNode choices,long sequence,String stream,OffsetDateTime createdAt,OffsetDateTime expiresAt){OffsetDateTime created=createdAt==null?OffsetDateTime.now():createdAt;String at=created.toString();ObjectNode request=JSON.createObjectNode().put("id",id("apr")).put("created_at",at).put("status","pending").put("action_digest",actionDigest(action));request.set("origin",origin.deepCopy());request.set("action",action.deepCopy());request.set("risk",risk.deepCopy());request.set("choices",choices.deepCopy());if(expiresAt!=null)request.put("expires_at",expiresAt.toString());ObjectNode envelope=JSON.createObjectNode().put("aais","1.0").put("type","approval.requested").put("id",id("evt")).put("occurred_at",at).put("sequence",sequence);if(stream!=null)envelope.put("stream",stream);envelope.set("request",request);validate(envelope);return envelope;}
 
-  /** Build a decision bound to an approval.requested envelope. */
+  /** Build a decision bound to an approval.requested envelope.
+   * @param requested validated requested envelope
+   * @param decision approve, deny, or cancel
+   * @param scope once, session, or persistent
+   * @param actor authenticated actor claim
+   * @param sequence stream sequence
+   * @param decidedAt decision time, or null for now
+   * @param replacementArguments optional full replacement arguments
+   * @return validated decision envelope
+   */
   public static ObjectNode createDecision(ObjectNode requested,String decision,String scope,ObjectNode actor,long sequence,OffsetDateTime decidedAt,ObjectNode replacementArguments){validate(requested);if(!"approval.requested".equals(requested.path("type").asText()))throw new AaisException("createDecision requires approval.requested");String at=(decidedAt==null?OffsetDateTime.now():decidedAt).toString();ObjectNode body=JSON.createObjectNode().put("id",id("dec")).put("request_id",requested.path("request").path("id").asText()).put("action_digest",requested.path("request").path("action_digest").asText()).put("decided_at",at).put("decision",decision).put("scope",scope);body.set("actor",actor.deepCopy());if(replacementArguments!=null)body.set("replacement_arguments",replacementArguments.deepCopy());ObjectNode envelope=JSON.createObjectNode().put("aais","1.0").put("type","approval.decided").put("id",id("evt")).put("occurred_at",at).put("sequence",sequence);if(requested.has("stream"))envelope.set("stream",requested.path("stream"));envelope.set("decision",body);validate(envelope);return envelope;}
 
-  /** Validate one AAIS 1.0 envelope. */
+  /** Validate one AAIS 1.0 envelope.
+   * @param envelope envelope to validate
+   */
   public static void validate(ObjectNode envelope) {
     requireText(envelope, "aais"); if (!VERSION.equals(envelope.path("aais").asText())) fail("aais must equal 1.0");
     requireId(envelope, "id"); requireTime(envelope, "occurred_at"); if (!envelope.path("sequence").canConvertToLong() || envelope.path("sequence").asLong() < 0) fail("sequence must be non-negative");
