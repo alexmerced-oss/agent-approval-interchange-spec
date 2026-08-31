@@ -14,7 +14,7 @@
 - TypeScript: typecheck, 7 tests, ESM/CJS/types build, zero-audit result,
   and npm tarball dry run
 - Go: tests and vet with Go 1.26.7; module declares Go 1.23
-- Rust: fmt, 4 integration tests, Clippy with warnings denied, docs, and
+- Rust: fmt, 5 integration tests, Clippy with warnings denied, docs, and
   crate package dry run; MSRV declared as 1.85
 - Java: 6 tests, compilation with all lint warnings denied, sources,
   Javadocs, and Maven package on Java 17

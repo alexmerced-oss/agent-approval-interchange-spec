@@ -1,4 +1,7 @@
-use agent_approval_interchange::{ApprovalError, ApprovalStore, action_digest, parse};
+use agent_approval_interchange::{
+    Actor, ApprovalError, ApprovalStore, CreateDecisionOptions, CreateRequestOptions,
+    action_digest, create_decision, create_request, parse,
+};
 use chrono::{TimeZone, Utc};
 use std::fs;
 
@@ -73,4 +76,42 @@ fn snapshot_round_trip() {
         restored.snapshot(None, at).snapshot.unwrap().pending.len(),
         1
     );
+}
+
+#[test]
+fn builders_are_valid() {
+    let source = fixture("shell-approval.json").request.unwrap();
+    let at = Utc.with_ymd_and_hms(2026, 8, 30, 18, 0, 0).unwrap();
+    let request = create_request(CreateRequestOptions {
+        action: source.action,
+        origin: source.origin,
+        risk: source.risk,
+        choices: source.choices,
+        sequence: 1,
+        stream: Some("session_s1".into()),
+        request_id: None,
+        event_id: None,
+        created_at: Some(at),
+        expires_at: Some(at + chrono::Duration::minutes(10)),
+    })
+    .unwrap();
+    create_decision(
+        &request,
+        CreateDecisionOptions {
+            decision: "approve".into(),
+            scope: "once".into(),
+            actor: Actor {
+                id: "alex".into(),
+                actor_type: "human".into(),
+                display_name: None,
+                authenticated_by: None,
+            },
+            sequence: 2,
+            decision_id: None,
+            event_id: None,
+            decided_at: Some(at + chrono::Duration::minutes(1)),
+            replacement_arguments: None,
+        },
+    )
+    .unwrap();
 }
