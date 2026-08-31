@@ -5,11 +5,12 @@ from __future__ import annotations
 import copy
 import hashlib
 import json
+from collections.abc import Mapping
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from importlib.resources import files
 from pathlib import Path
-from typing import Any, Mapping
+from typing import Any
 from uuid import uuid4
 
 import jsonschema
@@ -69,9 +70,10 @@ def validate(document: Mapping[str, Any]) -> JsonObject:
         expected = action_digest(request["action"])
         if request["action_digest"] != expected:
             raise ValidationError("/request/action_digest: does not match the canonical action")
-        if "expires_at" in request:
-            if _parse_time(request["expires_at"]) <= _parse_time(request["created_at"]):
-                raise ValidationError("/request/expires_at: must be later than created_at")
+        if "expires_at" in request and _parse_time(request["expires_at"]) <= _parse_time(
+            request["created_at"]
+        ):
+            raise ValidationError("/request/expires_at: must be later than created_at")
     return candidate
 
 
@@ -305,7 +307,7 @@ class ApprovalStore:
         return validate(envelope)
 
     @classmethod
-    def from_snapshot(cls, envelope: Mapping[str, Any]) -> "ApprovalStore":
+    def from_snapshot(cls, envelope: Mapping[str, Any]) -> ApprovalStore:
         restored = validate(envelope)
         if restored["type"] != "approval.snapshot":
             raise ValidationError("from_snapshot requires approval.snapshot")

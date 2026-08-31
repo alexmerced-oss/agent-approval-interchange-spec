@@ -7,7 +7,14 @@ from pathlib import Path
 
 import pytest
 
-from aais import ApprovalStore, ConflictError, ValidationError, action_digest, create_decision, validate
+from aais import (
+    ApprovalStore,
+    ConflictError,
+    ValidationError,
+    action_digest,
+    create_decision,
+    validate,
+)
 
 ROOT = Path(__file__).resolve().parents[1]
 
