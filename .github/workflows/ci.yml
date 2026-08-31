@@ -1,0 +1,62 @@
+name: CI
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  python:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ["3.10", "3.14"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: "${{ matrix.python-version }}" }
+      - run: python -m pip install -e '.[dev]'
+      - run: python -m pytest -q
+      - run: python -m ruff check aais tests
+      - run: python -m build
+      - run: python -m twine check dist/*
+  typescript:
+    runs-on: ubuntu-latest
+    defaults: { run: { working-directory: typescript } }
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 20, cache: npm, cache-dependency-path: typescript/package-lock.json }
+      - run: npm ci
+      - run: npm run check
+      - run: npm audit --omit=dev
+      - run: npm pack --dry-run
+  go:
+    runs-on: ubuntu-latest
+    defaults: { run: { working-directory: go } }
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with: { go-version: "1.23.x", cache-dependency-path: go/go.sum }
+      - run: go test ./...
+      - run: go vet ./...
+  rust:
+    runs-on: ubuntu-latest
+    defaults: { run: { working-directory: rust } }
+    steps:
+      - uses: actions/checkout@v4
+      - run: rustup toolchain install 1.85 --profile minimal --component rustfmt,clippy
+      - run: rustup override set 1.85
+      - run: cargo fmt --check
+      - run: cargo test --locked
+      - run: cargo clippy --locked --all-targets -- -D warnings
+      - run: cargo package --locked --allow-dirty --no-verify
+  java:
+    runs-on: ubuntu-latest
+    defaults: { run: { working-directory: java } }
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with: { distribution: temurin, java-version: "17", cache: maven }
+      - run: mvn -B verify

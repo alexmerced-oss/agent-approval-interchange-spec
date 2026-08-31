@@ -1,0 +1,259 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://raw.githubusercontent.com/alexmerced-oss/agent-approval-interchange-spec/v1.0.0/schema/v1/aais-1.0.schema.json",
+  "title": "Agent Approval Interchange Specification 1.0 Envelope",
+  "oneOf": [
+    { "$ref": "#/$defs/requestedEnvelope" },
+    { "$ref": "#/$defs/decidedEnvelope" },
+    { "$ref": "#/$defs/resolvedEnvelope" },
+    { "$ref": "#/$defs/snapshotEnvelope" },
+    { "$ref": "#/$defs/activityEnvelope" }
+  ],
+  "$defs": {
+    "id": { "type": "string", "minLength": 1, "maxLength": 200, "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]*$" },
+    "timestamp": { "type": "string", "format": "date-time" },
+    "extensions": {
+      "type": "object",
+      "propertyNames": { "pattern": "^(https?://|[A-Za-z0-9-]+\\.[A-Za-z0-9.-]+/)" },
+      "additionalProperties": true
+    },
+    "origin": {
+      "type": "object",
+      "required": ["harness", "session_id"],
+      "properties": {
+        "harness": { "$ref": "#/$defs/id" },
+        "session_id": { "$ref": "#/$defs/id" },
+        "run_id": { "$ref": "#/$defs/id" },
+        "task_id": { "$ref": "#/$defs/id" },
+        "graph_id": { "$ref": "#/$defs/id" },
+        "node_id": { "$ref": "#/$defs/id" },
+        "agent_id": { "$ref": "#/$defs/id" },
+        "profile": { "$ref": "#/$defs/id" },
+        "subagent_run_id": { "$ref": "#/$defs/id" },
+        "parent_run_id": { "$ref": "#/$defs/id" },
+        "project": { "type": "string", "minLength": 1, "maxLength": 4096 }
+      },
+      "additionalProperties": false
+    },
+    "presentation": {
+      "type": "object",
+      "properties": {
+        "redacted": { "type": "boolean" },
+        "binding_hint": { "type": "string", "minLength": 1, "maxLength": 1000 },
+        "details": { "type": "string", "minLength": 1, "maxLength": 10000 }
+      },
+      "additionalProperties": false,
+      "allOf": [
+        {
+          "if": { "properties": { "redacted": { "const": true } }, "required": ["redacted"] },
+          "then": { "required": ["binding_hint"] }
+        }
+      ]
+    },
+    "action": {
+      "type": "object",
+      "required": ["kind", "name", "summary", "arguments"],
+      "properties": {
+        "kind": { "$ref": "#/$defs/id" },
+        "name": { "$ref": "#/$defs/id" },
+        "summary": { "type": "string", "minLength": 1, "maxLength": 1000 },
+        "arguments": { "type": "object" },
+        "resource": { "type": "string", "minLength": 1, "maxLength": 4096 },
+        "working_directory": { "type": "string", "minLength": 1, "maxLength": 4096 },
+        "effects": {
+          "type": "array",
+          "maxItems": 100,
+          "items": { "type": "string", "minLength": 1, "maxLength": 1000 }
+        },
+        "presentation": { "$ref": "#/$defs/presentation" }
+      },
+      "additionalProperties": false
+    },
+    "risk": {
+      "type": "object",
+      "required": ["level", "reasons"],
+      "properties": {
+        "level": { "enum": ["low", "medium", "high", "critical"] },
+        "reasons": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 20,
+          "items": { "type": "string", "minLength": 1, "maxLength": 1000 }
+        }
+      },
+      "additionalProperties": false
+    },
+    "choice": {
+      "type": "object",
+      "required": ["decision", "scope", "label"],
+      "properties": {
+        "decision": { "enum": ["approve", "deny", "cancel"] },
+        "scope": { "enum": ["once", "session", "persistent"] },
+        "label": { "type": "string", "minLength": 1, "maxLength": 200 },
+        "allow_edits": { "type": "boolean" },
+        "scope_constraints": { "type": "object", "minProperties": 1 }
+      },
+      "additionalProperties": false,
+      "allOf": [
+        {
+          "if": { "properties": { "decision": { "enum": ["deny", "cancel"] } }, "required": ["decision"] },
+          "then": { "properties": { "scope": { "const": "once" }, "allow_edits": { "const": false } } }
+        },
+        {
+          "if": { "properties": { "scope": { "enum": ["session", "persistent"] } }, "required": ["scope"] },
+          "then": { "required": ["scope_constraints"] }
+        }
+      ]
+    },
+    "request": {
+      "type": "object",
+      "required": ["id", "created_at", "status", "origin", "action", "action_digest", "risk", "choices"],
+      "properties": {
+        "id": { "$ref": "#/$defs/id" },
+        "created_at": { "$ref": "#/$defs/timestamp" },
+        "expires_at": { "$ref": "#/$defs/timestamp" },
+        "status": { "const": "pending" },
+        "origin": { "$ref": "#/$defs/origin" },
+        "action": { "$ref": "#/$defs/action" },
+        "action_digest": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
+        "risk": { "$ref": "#/$defs/risk" },
+        "choices": { "type": "array", "minItems": 1, "maxItems": 10, "items": { "$ref": "#/$defs/choice" } },
+        "extensions": { "$ref": "#/$defs/extensions" }
+      },
+      "additionalProperties": false
+    },
+    "actor": {
+      "type": "object",
+      "required": ["id", "type"],
+      "properties": {
+        "id": { "$ref": "#/$defs/id" },
+        "type": { "enum": ["human", "policy"] },
+        "display_name": { "type": "string", "minLength": 1, "maxLength": 200 },
+        "authenticated_by": { "type": "string", "minLength": 1, "maxLength": 200 }
+      },
+      "additionalProperties": false
+    },
+    "decision": {
+      "type": "object",
+      "required": ["id", "request_id", "action_digest", "decided_at", "decision", "scope", "actor"],
+      "properties": {
+        "id": { "$ref": "#/$defs/id" },
+        "request_id": { "$ref": "#/$defs/id" },
+        "action_digest": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
+        "decided_at": { "$ref": "#/$defs/timestamp" },
+        "decision": { "enum": ["approve", "deny", "cancel"] },
+        "scope": { "enum": ["once", "session", "persistent"] },
+        "actor": { "$ref": "#/$defs/actor" },
+        "replacement_arguments": { "type": "object" },
+        "extensions": { "$ref": "#/$defs/extensions" }
+      },
+      "additionalProperties": false,
+      "allOf": [
+        {
+          "if": { "properties": { "decision": { "enum": ["deny", "cancel"] } }, "required": ["decision"] },
+          "then": { "properties": { "scope": { "const": "once" } }, "not": { "required": ["replacement_arguments"] } }
+        }
+      ]
+    },
+    "resolution": {
+      "type": "object",
+      "required": ["id", "request_id", "action_digest", "resolved_at", "outcome", "message"],
+      "properties": {
+        "id": { "$ref": "#/$defs/id" },
+        "request_id": { "$ref": "#/$defs/id" },
+        "decision_id": { "$ref": "#/$defs/id" },
+        "action_digest": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
+        "resolved_at": { "$ref": "#/$defs/timestamp" },
+        "outcome": { "enum": ["approved", "denied", "cancelled", "expired", "stale", "conflict", "invalid"] },
+        "message": { "type": "string", "minLength": 1, "maxLength": 2000 },
+        "effective_scope": { "enum": ["once", "session", "persistent"] },
+        "extensions": { "$ref": "#/$defs/extensions" }
+      },
+      "additionalProperties": false
+    },
+    "base": {
+      "type": "object",
+      "required": ["aais", "type", "id", "occurred_at", "sequence"],
+      "properties": {
+        "aais": { "const": "1.0" },
+        "type": { "type": "string" },
+        "id": { "$ref": "#/$defs/id" },
+        "occurred_at": { "$ref": "#/$defs/timestamp" },
+        "sequence": { "type": "integer", "minimum": 0 },
+        "stream": { "$ref": "#/$defs/id" },
+        "extensions": { "$ref": "#/$defs/extensions" }
+      }
+    },
+    "requestedEnvelope": {
+      "type": "object",
+      "allOf": [
+        { "$ref": "#/$defs/base" },
+        { "type": "object", "required": ["request"], "properties": { "type": { "const": "approval.requested" }, "request": { "$ref": "#/$defs/request" } } }
+      ],
+      "unevaluatedProperties": false
+    },
+    "decidedEnvelope": {
+      "type": "object",
+      "allOf": [
+        { "$ref": "#/$defs/base" },
+        { "type": "object", "required": ["decision"], "properties": { "type": { "const": "approval.decided" }, "decision": { "$ref": "#/$defs/decision" } } }
+      ],
+      "unevaluatedProperties": false
+    },
+    "resolvedEnvelope": {
+      "type": "object",
+      "allOf": [
+        { "$ref": "#/$defs/base" },
+        { "type": "object", "required": ["resolution"], "properties": { "type": { "const": "approval.resolved" }, "resolution": { "$ref": "#/$defs/resolution" } } }
+      ],
+      "unevaluatedProperties": false
+    },
+    "snapshotEnvelope": {
+      "type": "object",
+      "allOf": [
+        { "$ref": "#/$defs/base" },
+        {
+          "type": "object",
+          "required": ["snapshot"],
+          "properties": {
+            "type": { "const": "approval.snapshot" },
+            "snapshot": {
+              "type": "object",
+              "required": ["as_of_sequence", "pending"],
+              "properties": {
+                "as_of_sequence": { "type": "integer", "minimum": 0 },
+                "pending": { "type": "array", "items": { "$ref": "#/$defs/request" } }
+              },
+              "additionalProperties": false
+            }
+          }
+        }
+      ],
+      "unevaluatedProperties": false
+    },
+    "activityEnvelope": {
+      "type": "object",
+      "allOf": [
+        { "$ref": "#/$defs/base" },
+        {
+          "type": "object",
+          "required": ["activity"],
+          "properties": {
+            "type": { "const": "approval.activity" },
+            "activity": {
+              "type": "object",
+              "required": ["request_id", "message"],
+              "properties": {
+                "request_id": { "$ref": "#/$defs/id" },
+                "message": { "type": "string", "minLength": 1, "maxLength": 2000 },
+                "stage": { "$ref": "#/$defs/id" }
+              },
+              "additionalProperties": false
+            }
+          }
+        }
+      ],
+      "unevaluatedProperties": false
+    }
+  }
+}

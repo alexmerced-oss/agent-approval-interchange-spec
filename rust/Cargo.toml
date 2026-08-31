@@ -1,0 +1,29 @@
+[package]
+name = "agent-approval-interchange"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.85"
+description = "Rust support library for the Agent Approval Interchange Specification"
+license = "Apache-2.0"
+repository = "https://github.com/alexmerced-oss/agent-approval-interchange-spec"
+homepage = "https://github.com/alexmerced-oss/agent-approval-interchange-spec"
+documentation = "https://docs.rs/agent-approval-interchange"
+readme = "README.md"
+keywords = ["agent", "approval", "hitl", "specification"]
+categories = ["data-structures", "authentication"]
+
+[lib]
+name = "agent_approval_interchange"
+
+[dependencies]
+chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }
+regex = "1.12"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+serde_jcs = "0.2"
+sha2 = "0.10"
+thiserror = "2"
+uuid = { version = "1", features = ["v4"] }
+
+[dev-dependencies]
+pretty_assertions = "1"

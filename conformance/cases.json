@@ -1,0 +1,14 @@
+{
+  "aais": "1.0",
+  "request_fixture": "examples/shell-approval.json",
+  "decision_fixture": "examples/approve-once.json",
+  "action_digest": "sha256:157f438a55ce7db6aa61c8515f0b48ce2851b9bad6c5b67bb3eb34ff353fd9d8",
+  "cases": [
+    { "name": "approve_once", "now": "2026-08-30T18:01:00Z", "outcome": "approved" },
+    { "name": "expired", "now": "2026-08-30T19:00:00Z", "outcome": "expired" },
+    { "name": "changed_action", "now": "2026-08-30T18:01:00Z", "mutation": "current_action.summary", "outcome": "stale" },
+    { "name": "unoffered_scope", "now": "2026-08-30T18:01:00Z", "mutation": "decision.scope=persistent", "outcome": "invalid" },
+    { "name": "identical_replay", "outcome": "same_resolution" },
+    { "name": "conflicting_replay", "mutation": "decision.id+decision.decision", "outcome": "conflict" }
+  ]
+}

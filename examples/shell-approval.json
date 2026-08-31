@@ -1,0 +1,45 @@
+{
+  "aais": "1.0",
+  "type": "approval.requested",
+  "id": "evt_shell_001",
+  "occurred_at": "2026-08-30T18:00:00Z",
+  "sequence": 41,
+  "stream": "session_s1",
+  "request": {
+    "id": "apr_shell_001",
+    "created_at": "2026-08-30T18:00:00Z",
+    "expires_at": "2026-08-30T18:10:00Z",
+    "status": "pending",
+    "origin": {
+      "harness": "example-harness",
+      "session_id": "s-1",
+      "run_id": "r-7",
+      "graph_id": "website-build",
+      "node_id": "verify",
+      "project": "/workspace/example"
+    },
+    "action": {
+      "kind": "process.exec",
+      "name": "shell.exec",
+      "summary": "Run the JavaScript syntax check",
+      "arguments": { "command": "node --check script.js" },
+      "working_directory": "/workspace/example",
+      "effects": ["Starts a local Node.js process", "Reads script.js"]
+    },
+    "action_digest": "sha256:157f438a55ce7db6aa61c8515f0b48ce2851b9bad6c5b67bb3eb34ff353fd9d8",
+    "risk": {
+      "level": "medium",
+      "reasons": ["Executes a local process"]
+    },
+    "choices": [
+      { "decision": "approve", "scope": "once", "label": "Allow once" },
+      {
+        "decision": "approve",
+        "scope": "session",
+        "label": "Allow matching checks for this session",
+        "scope_constraints": { "action_name": "shell.exec", "command_prefix": "node --check " }
+      },
+      { "decision": "deny", "scope": "once", "label": "Deny" }
+    ]
+  }
+}

@@ -1,0 +1,42 @@
+{
+  "name": "agent-approval-interchange",
+  "version": "0.1.0",
+  "description": "TypeScript support library for the Agent Approval Interchange Specification",
+  "license": "Apache-2.0",
+  "type": "module",
+  "engines": { "node": ">=20" },
+  "main": "./dist/index.cjs",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": { "types": "./dist/index.d.ts", "import": "./dist/index.js", "require": "./dist/index.cjs" }
+  },
+  "files": ["dist", "README.md", "LICENSE"],
+  "scripts": {
+    "build": "tsup",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "check": "npm run typecheck && npm test && npm run build",
+    "prepack": "npm run check"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/alexmerced-oss/agent-approval-interchange-spec.git",
+    "directory": "typescript"
+  },
+  "keywords": ["agent", "approval", "human-in-the-loop", "specification"],
+  "dependencies": {
+    "ajv": "^8.17.1",
+    "ajv-formats": "^3.0.1",
+    "canonicalize": "^2.1.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.17.0",
+    "tsup": "^8.5.0",
+    "typescript": "^5.9.0",
+    "vitest": "^4.0.0"
+  },
+  "overrides": {
+    "esbuild": "^0.28.1"
+  }
+}

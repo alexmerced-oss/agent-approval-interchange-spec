@@ -1,0 +1,22 @@
+{
+  "aais": "1.0",
+  "type": "approval.decided",
+  "id": "evt_decision_001",
+  "occurred_at": "2026-08-30T18:01:00Z",
+  "sequence": 42,
+  "stream": "session_s1",
+  "decision": {
+    "id": "dec_001",
+    "request_id": "apr_shell_001",
+    "action_digest": "sha256:157f438a55ce7db6aa61c8515f0b48ce2851b9bad6c5b67bb3eb34ff353fd9d8",
+    "decided_at": "2026-08-30T18:01:00Z",
+    "decision": "approve",
+    "scope": "once",
+    "actor": {
+      "id": "user_alex",
+      "type": "human",
+      "display_name": "Alex",
+      "authenticated_by": "local-session"
+    }
+  }
+}
