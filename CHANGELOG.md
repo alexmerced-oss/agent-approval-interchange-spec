@@ -1,5 +1,12 @@
 # Changelog
 
+## Unreleased
+
+- Added a WebMCP integration profile for presenting exact, revision-bound browser actions while
+  keeping policy authority in the harness and credentials in the browser context.
+- Documented read-only hints, mutating-call confirmation, stale registries, expiry, redaction,
+  cancellation, and reconnect-safe presentation requirements.
+
 ## 0.1.0 - 2026-08-30
 
 - Define the AAIS 1.0 release-candidate envelope, request, decision,

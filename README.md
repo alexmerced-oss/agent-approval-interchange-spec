@@ -4,7 +4,7 @@
 
 Specification `1.0` release candidate · support libraries `0.1.0` · Released
 
-[Specification](spec/v1/SPEC.md) · [Security](spec/v1/security.md) · [Conformance](spec/v1/conformance.md) · [Integration guide](docs/integration.md)
+[Specification](spec/v1/SPEC.md) · [Security](spec/v1/security.md) · [Conformance](spec/v1/conformance.md) · [Integration guide](docs/integration.md) · [WebMCP mapping](docs/webmcp.md)
 
 AAIS lets a harness pause any chat, bot, subagent, or graph node and hand a
 portable approval request to a CLI, web UI, desktop app, policy service, or
