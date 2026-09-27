@@ -1,23 +1,26 @@
-"""Durable, cross-process AAIS approval authority backed by one JSON file.
+"""Durable, cross-process AAIS approval authority over a pluggable backend.
 
-:class:`FileApprovalStore` persists pending requests, decisions, resolutions
+:class:`ApprovalAuthority` holds pending requests, decisions, resolutions
 (receipts), owner identities, and the ordered event log for one approval
-stream. Several processes may open the same file: every read-modify-write runs
-as a transaction under an exclusive OS file lock (``fcntl.flock`` on POSIX,
-``msvcrt.locking`` on Windows), so sequence allocation, pending insertion,
-resolution, and receipts can never interleave.
+stream. All state logic lives here: sequence allocation, decisions, retention,
+replay gaps, owner liveness, and corruption handling. Locking and storage are
+delegated to an :class:`~aais.backends.ApprovalStateBackend`; every
+read-modify-write runs inside one backend transaction, so sequence allocation,
+pending insertion, resolution, and receipts can never interleave.
 
-Durability and failure handling:
+:class:`FileApprovalStore` is the authority over the default
+:class:`~aais.backends.FileBackend` (one JSON file, ``fcntl.flock`` on POSIX,
+``msvcrt.locking`` on Windows):
 
 * writes go to a unique temporary file in the same directory, are fsynced, and
   atomically replace the state file; the directory is fsynced on POSIX;
 * an unreadable state file is moved to ``<file>.corrupt-<UTC timestamp>`` and
   the store enters a *recovery required* state (a ``<file>.recovery-required``
   marker). Every later call raises :class:`RecoveryRequired` until an operator
-  calls :meth:`FileApprovalStore.acknowledge_recovery`; the store never treats
-  a damaged file as empty;
+  calls :meth:`ApprovalAuthority.acknowledge_recovery`; the store never treats
+  damaged state as empty;
 * resolved entries and old events are compacted according to a
-  :class:`RetentionPolicy`; :meth:`FileApprovalStore.events_after` reports a
+  :class:`RetentionPolicy`; :meth:`ApprovalAuthority.events_after` reports a
   ``gap`` when the caller asks for events that were compacted away.
 
 The store is an implementation aid. It does not change AAIS 1.0 semantics:
@@ -31,19 +34,26 @@ import copy
 import json
 import os
 import re
-import sys
-import tempfile
 import threading
 import time
 import uuid
-from collections.abc import Callable, Iterator, Mapping
+from collections.abc import Callable, Hashable, Iterator, Mapping
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
+from .backends import (
+    ApprovalStateBackend,
+    BackendTransaction,
+    CorruptState,
+    FileBackend,
+    LockTimeout,
+    MemoryBackend,
+    RecoveryRequired,
+    StoreError,
+)
 from .core import (
-    ApprovalError,
     ApprovalStore,
     ConflictError,
     ValidationError,
@@ -56,10 +66,16 @@ from .liveness import Liveness, OwnerIdentity, owner_liveness
 
 __all__ = [
     "SCHEMA",
+    "ApprovalAuthority",
+    "ApprovalStateBackend",
+    "BackendTransaction",
     "CompactionReport",
+    "CorruptState",
     "EventPage",
     "FileApprovalStore",
+    "FileBackend",
     "LockTimeout",
+    "MemoryBackend",
     "OwnerStoppedError",
     "RecoveryReport",
     "RecoveryRequired",
@@ -87,53 +103,8 @@ _POLICY_ACTOR: dict[str, str] = {"type": "policy", "authenticated_by": "authorit
 # ----------------------------------------------------------------------- errors
 
 
-class StoreError(ApprovalError):
-    """The approval store could not complete an operation."""
-
-
-class RecoveryRequired(StoreError):
-    """The state file was unreadable and has been quarantined.
-
-    The store refuses every operation until
-    :meth:`FileApprovalStore.acknowledge_recovery` is called.
-    """
-
-    def __init__(
-        self,
-        path: Path,
-        *,
-        reason: str,
-        quarantined_to: Path | None,
-        detected_at: str,
-        sequence_hint: int,
-    ) -> None:
-        where = f"; the damaged file was moved to {quarantined_to}" if quarantined_to else ""
-        super().__init__(
-            f"Approval state at {path} requires recovery ({reason}){where}. "
-            "Inspect it, then call acknowledge_recovery() to start a fresh store."
-        )
-        self.path = path
-        self.reason = reason
-        self.quarantined_to = quarantined_to
-        self.detected_at = detected_at
-        self.sequence_hint = sequence_hint
-
-    def to_dict(self) -> dict[str, Any]:
-        return {
-            "path": str(self.path),
-            "reason": self.reason,
-            "quarantined_to": str(self.quarantined_to) if self.quarantined_to else None,
-            "detected_at": self.detected_at,
-            "sequence_hint": self.sequence_hint,
-        }
-
-
 class UnsupportedStoreVersion(StoreError):
     """The state file was written by a newer, incompatible store version."""
-
-
-class LockTimeout(StoreError):
-    """Another thread or process held the store lock for too long."""
 
 
 class UnknownRequestError(ValidationError, ValueError):
@@ -325,129 +296,18 @@ def _check_state(value: object) -> str | None:
     return None
 
 
-# ---------------------------------------------------------------------- locking
-
-_REGISTRY_GUARD = threading.Lock()
-_PATH_LOCKS: dict[str, threading.Lock] = {}
-_HELD = threading.local()
-
-
-def _thread_lock_for(key: str) -> threading.Lock:
-    with _REGISTRY_GUARD:
-        lock = _PATH_LOCKS.get(key)
-        if lock is None:
-            lock = _PATH_LOCKS[key] = threading.Lock()
-        return lock
-
-
-def _held_paths() -> set[str]:
-    held: set[str] | None = getattr(_HELD, "paths", None)
-    if held is None:
-        held = set()
-        _HELD.paths = held
-    return held
-
-
-def _try_lock(descriptor: int) -> bool:
-    """Try once to take an exclusive lock; ``False`` means it is contended."""
-
-    if sys.platform == "win32":  # pragma: no cover - exercised on Windows CI
-        import msvcrt
-
-        os.lseek(descriptor, 0, os.SEEK_SET)
-        try:
-            msvcrt.locking(descriptor, msvcrt.LK_NBLCK, 1)
-        except OSError:
-            return False
-        return True
-    import fcntl
-
-    try:
-        fcntl.flock(descriptor, fcntl.LOCK_EX | fcntl.LOCK_NB)
-    except BlockingIOError:
-        return False
-    return True
-
-
-def _unlock(descriptor: int) -> None:
-    if sys.platform == "win32":  # pragma: no cover - exercised on Windows CI
-        import msvcrt
-
-        os.lseek(descriptor, 0, os.SEEK_SET)
-        msvcrt.locking(descriptor, msvcrt.LK_UNLCK, 1)
-        return
-    import fcntl
-
-    fcntl.flock(descriptor, fcntl.LOCK_UN)
-
-
-def _fsync_directory(directory: Path) -> None:
-    if sys.platform == "win32":  # pragma: no cover - directories cannot be opened on Windows
-        return
-    with contextlib.suppress(OSError):
-        descriptor = os.open(directory, os.O_RDONLY)
-        try:
-            _fsync(descriptor)
-        finally:
-            os.close(descriptor)
-
-
-def _replace(source: Path, target: Path) -> None:
-    """``os.replace`` with a short retry for Windows sharing violations."""
-
-    attempts = 20 if sys.platform == "win32" else 1
-    for attempt in range(attempts):
-        try:
-            os.replace(source, target)
-            return
-        except PermissionError:
-            if attempt == attempts - 1:
-                raise
-            time.sleep(0.05)  # pragma: no cover - Windows only
-
-
-def _fsync(descriptor: int) -> None:
-    """Flush a file to stable storage (``F_FULLFSYNC`` on macOS)."""
-
-    if sys.platform == "darwin":  # pragma: no cover - exercised on macOS CI
-        import fcntl
-
-        try:
-            fcntl.fcntl(descriptor, fcntl.F_FULLFSYNC)
-            return
-        except OSError:
-            pass
-    os.fsync(descriptor)
-
-
-def _atomic_write(path: Path, payload: bytes) -> None:
-    descriptor, name = tempfile.mkstemp(prefix=f".{path.name}.", suffix=".tmp", dir=path.parent)
-    temporary = Path(name)
-    try:
-        with os.fdopen(descriptor, "wb") as handle:
-            handle.write(payload)
-            handle.flush()
-            _fsync(handle.fileno())
-        _replace(temporary, path)
-    except BaseException:
-        with contextlib.suppress(OSError):
-            temporary.unlink()
-        raise
-    _fsync_directory(path.parent)
-
-
 # ------------------------------------------------------------------ transaction
 
 
 class StoreTransaction:
     """A locked read-modify-write view of the store state.
 
-    Obtain one from :meth:`FileApprovalStore.transaction`. Changes are written
+    Obtain one from :meth:`ApprovalAuthority.transaction`. Changes are written
     atomically when the ``with`` block exits without an exception; if it raises,
     nothing is written. Getter methods return deep copies.
     """
 
-    def __init__(self, store: FileApprovalStore, state: dict[str, Any]) -> None:
+    def __init__(self, store: ApprovalAuthority, state: dict[str, Any]) -> None:
         self._store = store
         self._state = state
         self._dirty = False
@@ -675,41 +535,37 @@ class StoreTransaction:
 # ------------------------------------------------------------------------ store
 
 
-class FileApprovalStore:
-    """Cross-process, durable AAIS approval authority stored in one JSON file.
+class ApprovalAuthority:
+    """Cross-process, durable AAIS approval authority over a pluggable backend.
 
-    ``stream`` names the authority stream written into requested and resolved
-    events; ``presenter_stream`` names the stream used for decisions (defaults
-    to ``"<stream>.presenter"``). ``owner`` and ``host_id`` default to the
-    calling process and host; tests may inject them, along with ``clock``.
+    All AAIS state logic lives here; ``backend`` (an
+    :class:`~aais.backends.ApprovalStateBackend`) supplies only locking and
+    storage. ``stream`` names the authority stream written into requested and
+    resolved events; ``presenter_stream`` names the stream used for decisions
+    (defaults to ``"<stream>.presenter"``). ``owner`` and ``host_id`` default
+    to the calling process and host; tests may inject them, along with
+    ``clock``.
     """
 
     def __init__(
         self,
-        path: str | os.PathLike[str],
+        backend: ApprovalStateBackend,
         *,
         stream: str,
         presenter_stream: str | None = None,
         retention: RetentionPolicy | None = None,
-        lock_timeout: float = 10.0,
-        max_bytes: int | None = 64 * 1024 * 1024,
         clock: Clock | None = None,
         owner: OwnerIdentity | None = None,
         host_id: str | None = None,
     ) -> None:
-        self.path = Path(path).expanduser().absolute()
-        self.lock_path = self.path.with_name(self.path.name + ".lock")
-        self.marker_path = self.path.with_name(self.path.name + ".recovery-required")
+        self.backend = backend
         self.stream = stream
         self.presenter_stream = presenter_stream or f"{stream}.presenter"
         self.retention = retention if retention is not None else RetentionPolicy()
-        self.lock_timeout = float(lock_timeout)
-        self.max_bytes = max_bytes
         self.clock: Clock = clock or _utc_now
         self._owner = owner
         self._host_id = host_id
-        self._cache: tuple[tuple[int, int, int, int], dict[str, Any]] | None = None
-        self._parse_count = 0
+        self._validated: Any = None
 
     # ------------------------------------------------------------ identities
 
@@ -721,183 +577,90 @@ class FileApprovalStore:
     def host_id(self) -> str:
         return self._host_id or self.owner.host_id
 
-    # --------------------------------------------------------------- locking
+    # ------------------------------------------------------------- loading
 
-    @contextlib.contextmanager
-    def _locked(self) -> Iterator[None]:
-        key = str(self.path)
-        held = _held_paths()
-        if key in held:
-            raise StoreError(
-                f"nested transaction on {self.path}; reuse the open transaction instead"
-            )
-        for candidate in (self.path, self.lock_path):
-            if candidate.is_symlink():
-                raise StoreError(f"approval store paths cannot be symlinks: {candidate}")
-        deadline = time.monotonic() + self.lock_timeout
-        thread_lock = _thread_lock_for(key)
-        if not thread_lock.acquire(timeout=max(0.0, self.lock_timeout)):
-            raise LockTimeout(f"timed out waiting for {self.lock_path}")
-        try:
-            self.path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
-            flags = os.O_RDWR | os.O_CREAT | getattr(os, "O_CLOEXEC", 0)
-            flags |= getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_BINARY", 0)
+    def _quarantine(
+        self, btx: BackendTransaction, reason: str, raw: bytes | None, value: Any = None
+    ) -> RecoveryRequired:
+        if raw is None:
             try:
-                descriptor = os.open(self.lock_path, flags, 0o600)
-            except OSError as error:
-                raise StoreError(f"unable to open lock file {self.lock_path}: {error}") from error
-            try:
-                if sys.platform == "win32":  # pragma: no cover - msvcrt locks a byte range
-                    if os.fstat(descriptor).st_size == 0:
-                        os.write(descriptor, b"0")
-                delay = 0.001
-                while not _try_lock(descriptor):
-                    if time.monotonic() >= deadline:
-                        raise LockTimeout(
-                            f"timed out after {self.lock_timeout:g}s waiting for {self.lock_path}"
-                        )
-                    time.sleep(delay)
-                    delay = min(delay * 2, 0.02)
-                held.add(key)
-                try:
-                    yield
-                finally:
-                    held.discard(key)
-                    with contextlib.suppress(OSError):
-                        _unlock(descriptor)
-            finally:
-                os.close(descriptor)
-        finally:
-            thread_lock.release()
-
-    # ------------------------------------------------------------- file I/O
-
-    def _signature(self) -> tuple[int, int, int, int] | None:
-        try:
-            stat = os.stat(self.path)
-        except FileNotFoundError:
-            return None
-        return (stat.st_ino, stat.st_size, stat.st_mtime_ns, stat.st_ctime_ns)
-
-    def _raise_if_marked(self) -> None:
-        if not self.marker_path.exists():
-            return
-        try:
-            loaded = json.loads(self.marker_path.read_text(encoding="utf-8"))
-        except (OSError, ValueError):
-            loaded = None
-        marker: dict[str, Any] = loaded if isinstance(loaded, dict) else {}
-        quarantined = marker.get("quarantined_to")
-        raise RecoveryRequired(
-            self.path,
-            reason=str(marker.get("reason") or "recovery marker present"),
-            quarantined_to=Path(quarantined) if isinstance(quarantined, str) else None,
-            detected_at=str(marker.get("detected_at") or ""),
-            sequence_hint=int(marker.get("sequence_hint") or 0),
+                raw = json.dumps(value).encode("utf-8")
+            except (TypeError, ValueError):
+                raw = b""
+        self._validated = None
+        return btx.quarantine(
+            reason=reason, detected_at=self.clock(), sequence_hint=_sequence_hint(raw)
         )
 
-    def _quarantine(self, raw: bytes, reason: str) -> RecoveryRequired:
-        detected = self.clock()
-        stamp = detected.astimezone(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
-        target = self.path.with_name(f"{self.path.name}.corrupt-{stamp}")
-        counter = 1
-        while target.exists():
-            target = self.path.with_name(f"{self.path.name}.corrupt-{stamp}-{counter}")
-            counter += 1
-        moved: Path | None = target
-        try:
-            os.replace(self.path, target)
-        except OSError:
-            moved = None
-        _fsync_directory(self.path.parent)
-        error = RecoveryRequired(
-            self.path,
-            reason=reason,
-            quarantined_to=moved,
-            detected_at=_timestamp(detected),
-            sequence_hint=_sequence_hint(raw),
-        )
-        _atomic_write(self.marker_path, json.dumps(error.to_dict(), sort_keys=True).encode())
-        self._cache = None
-        return error
+    def _load(self, btx: BackendTransaction) -> dict[str, Any] | RecoveryRequired:
+        """Load and validate state; return the condition to raise after commit.
 
-    def _load(self, *, mutable: bool = True) -> dict[str, Any]:
-        """Read and validate the state. Must be called with the lock held.
-
-        With ``mutable=False`` the cached state object itself is returned and
-        the caller must not modify it.
+        The returned state must not be mutated (it may be the backend's cache).
         """
 
-        self._raise_if_marked()
-        signature = self._signature()
-        if signature is None:
-            self._cache = None
-            return _empty_state()
-        if self._cache is not None and self._cache[0] == signature:
-            return copy.deepcopy(self._cache[1]) if mutable else self._cache[1]
-        if self.max_bytes is not None and signature[1] > self.max_bytes:
-            raise StoreError(
-                f"approval state {self.path} is {signature[1]} bytes, above max_bytes="
-                f"{self.max_bytes}; tighten the retention policy or raise the limit"
-            )
+        marker = btx.recovery_marker()
+        if marker is not None:
+            raise marker
         try:
-            raw = self.path.read_bytes()
-        except FileNotFoundError:
+            value = btx.load()
+        except CorruptState as error:
+            return self._quarantine(btx, error.reason, error.raw)
+        if value is None:
             return _empty_state()
-        except OSError as error:
-            raise StoreError(f"could not read {self.path}: {error}") from error
-        self._parse_count += 1
-        try:
-            value = json.loads(raw.decode("utf-8"))
-        except (UnicodeDecodeError, json.JSONDecodeError) as error:
-            raise self._quarantine(raw, f"invalid JSON: {error}") from error
+        if value is self._validated:
+            return cast("dict[str, Any]", value)
         schema = value.get("schema") if isinstance(value, dict) else None
         if isinstance(schema, str) and schema.startswith(_SCHEMA_PREFIX) and schema != SCHEMA:
             raise UnsupportedStoreVersion(
-                f"{self.path} uses {schema}; this library understands {SCHEMA}. "
-                "Upgrade agent-approval-interchange."
+                f"{self.backend.description} uses {schema}; this library understands "
+                f"{SCHEMA}. Upgrade agent-approval-interchange."
             )
         reason = "unrecognized schema" if schema != SCHEMA else _check_state(value)
         if reason is not None:
-            raise self._quarantine(raw, reason)
-        self._cache = (signature, value)
-        return copy.deepcopy(value) if mutable else value
+            return self._quarantine(btx, reason, None, value)
+        self._validated = value
+        return cast("dict[str, Any]", value)
 
-    def _save(self, state: dict[str, Any]) -> None:
-        if not state["store_id"]:
-            state["store_id"] = uuid.uuid4().hex
-        payload = json.dumps(state, sort_keys=True, separators=(",", ":")).encode("utf-8")
-        self._remove_stale_temporaries()
-        _atomic_write(self.path, payload)
-        signature = self._signature()
-        self._cache = None if signature is None else (signature, copy.deepcopy(state))
+    def _read(self) -> dict[str, Any]:
+        """Locked, validated read for read-only operations (never mutated)."""
 
-    def _remove_stale_temporaries(self) -> None:
-        # Temporary files are only created while the lock is held, so any that
-        # exist now were left behind by a crashed writer.
-        for leftover in self.path.parent.glob(f".{self.path.name}.*.tmp"):
-            with contextlib.suppress(OSError):
-                leftover.unlink()
+        with self.backend.transaction() as btx:
+            loaded = self._load(btx)
+        if isinstance(loaded, RecoveryRequired):
+            raise loaded
+        return loaded
 
     # ---------------------------------------------------------- transactions
 
     @contextlib.contextmanager
     def transaction(self) -> Iterator[StoreTransaction]:
-        """Hold the cross-process lock for a whole read-modify-write cycle."""
+        """Hold the backend lock for a whole read-modify-write cycle."""
 
-        with self._locked():
-            state = self._load()
-            tx = StoreTransaction(self, state)
-            yield tx
-            report = self._compact_state(state, self.clock())
-            if tx._dirty or report.changed:
-                self._save(state)
+        condition: RecoveryRequired | None = None
+        with self.backend.transaction() as btx:
+            loaded = self._load(btx)
+            if isinstance(loaded, RecoveryRequired):
+                condition = loaded
+            else:
+                state = copy.deepcopy(loaded)
+                tx = StoreTransaction(self, state)
+                yield tx
+                report = self._compact_state(state, self.clock())
+                if tx._dirty or report.changed:
+                    self._stamp(state)
+                    btx.save(state)
+        if condition is not None:
+            raise condition
 
-    def _read(self) -> dict[str, Any]:
-        """Locked read for read-only operations (no copy, never mutated)."""
+    @staticmethod
+    def _stamp(state: dict[str, Any]) -> None:
+        if not state["store_id"]:
+            state["store_id"] = uuid.uuid4().hex
 
-        with self._locked():
-            return self._load(mutable=False)
+    def exists(self) -> bool:
+        """Whether the backend holds any state yet."""
+
+        return bool(self.backend.exists())
 
     # ------------------------------------------------------------ compaction
 
@@ -961,12 +724,21 @@ class FileApprovalStore:
     def compact(self) -> CompactionReport:
         """Apply the retention policy now (it also runs on every write)."""
 
-        with self._locked():
-            state = self._load()
-            report = self._compact_state(state, self.clock())
-            if report.changed:
-                self._save(state)
-            return report
+        condition: RecoveryRequired | None = None
+        report = CompactionReport()
+        with self.backend.transaction() as btx:
+            loaded = self._load(btx)
+            if isinstance(loaded, RecoveryRequired):
+                condition = loaded
+            else:
+                state = copy.deepcopy(loaded)
+                report = self._compact_state(state, self.clock())
+                if report.changed:
+                    self._stamp(state)
+                    btx.save(state)
+        if condition is not None:
+            raise condition
+        return report
 
     # ------------------------------------------------------ high-level API
 
@@ -1160,24 +932,26 @@ class FileApprovalStore:
         """Block until ``request_id`` is resolved by any process.
 
         Returns the ``approval.resolved`` envelope, or ``None`` on timeout or
-        when ``cancelled`` is set. The file is re-parsed only when its inode,
-        size, mtime, or ctime changes, plus once every ``refresh_interval``
-        seconds as protection against filesystems with coarse timestamps.
+        when ``cancelled`` is set. State is re-read only when the backend's
+        :meth:`~aais.backends.ApprovalStateBackend.version` changes (for files:
+        inode, size, mtime, or ctime), plus once every ``refresh_interval``
+        seconds as protection against coarse change markers.
         Raises :class:`UnknownRequestError` if the request is neither pending
         nor resolved.
         """
 
         deadline = time.monotonic() + max(0.0, timeout)
-        last_signature: tuple[int, int, int, int] | None | bool = False
+        last_version: Hashable | None = None
+        seen = False
         last_refresh = float("-inf")
         while True:
-            signature = self._signature()
+            version = self.backend.version()
             refresh_due = time.monotonic() - last_refresh >= refresh_interval
-            if signature != last_signature or refresh_due:
-                if signature == last_signature:
-                    self._cache = None  # periodic re-read even if metadata looks unchanged
+            if not seen or version != last_version or refresh_due:
+                if seen and version == last_version:
+                    self.backend.invalidate()  # periodic re-read even if unchanged
                 state = self._read()
-                last_signature = self._cache[0] if self._cache is not None else None
+                last_version, seen = version, True
                 last_refresh = time.monotonic()
                 resolution = state["resolutions"].get(request_id)
                 if resolution is not None:
@@ -1200,11 +974,7 @@ class FileApprovalStore:
     def recovery_status(self) -> RecoveryRequired | None:
         """The pending recovery condition, or ``None`` when the store is usable."""
 
-        try:
-            self._raise_if_marked()
-        except RecoveryRequired as condition:
-            return condition
-        return None
+        return self.backend.recovery_status()
 
     def acknowledge_recovery(self, *, start_sequence: int | None = None) -> None:
         """Leave the recovery-required state after an operator has inspected it.
@@ -1215,21 +985,34 @@ class FileApprovalStore:
         clients see a gap rather than silently reused sequence numbers.
         """
 
-        with self._locked():
-            condition = self.recovery_status()
+        if start_sequence is not None and int(start_sequence) < 0:
+            raise ValueError("start_sequence must be non-negative")
+        failure: RecoveryRequired | None = None
+        with self.backend.transaction() as btx:
+            condition = btx.recovery_marker()
             if condition is None:
                 return
-            if self.path.exists():
-                self.marker_path.unlink()
-                _fsync_directory(self.path.parent)
-                self._load()
-                return
-            base = condition.sequence_hint if start_sequence is None else int(start_sequence)
-            if base < 0:
-                raise ValueError("start_sequence must be non-negative")
-            self._save(_empty_state(sequence=base))
-            self.marker_path.unlink()
-            _fsync_directory(self.path.parent)
+            try:
+                value = btx.load()
+            except CorruptState as error:
+                btx.clear_recovery()
+                failure = self._quarantine(btx, error.reason, error.raw)
+                value = None
+            if failure is None and value is not None:
+                # A copy restored by an operator: validate it like any load.
+                btx.clear_recovery()
+                self._validated = None
+                loaded = self._load(btx)
+                if isinstance(loaded, RecoveryRequired):
+                    failure = loaded
+            elif failure is None:
+                base = condition.sequence_hint if start_sequence is None else int(start_sequence)
+                fresh = _empty_state(sequence=base)
+                self._stamp(fresh)
+                btx.save(fresh)
+                btx.clear_recovery()
+        if failure is not None:
+            raise failure
 
     def import_legacy_state(
         self,
@@ -1257,9 +1040,18 @@ class FileApprovalStore:
             "events",
             "owners",
         }
-        with self._locked():
-            if not overwrite and (self.path.exists() or self.marker_path.exists()):
-                raise StoreError(f"{self.path} already exists; pass overwrite=True to replace it")
+        with self.backend.transaction() as btx:
+            marker = btx.recovery_marker()
+            if not overwrite:
+                try:
+                    present = marker is not None or btx.load() is not None
+                except CorruptState:
+                    present = True
+                if present:
+                    raise StoreError(
+                        f"{self.backend.description} already exists; "
+                        "pass overwrite=True to replace it"
+                    )
             state = _empty_state()
             state["sequence"] = int(legacy.get("sequence", 0))
             state["presenter_sequence"] = int(legacy.get("presenter_sequence", 0))
@@ -1302,6 +1094,69 @@ class FileApprovalStore:
             reason = _check_state(state)
             if reason is not None:
                 raise ValidationError(f"legacy state is invalid: {reason}")
-            if self.marker_path.exists():
-                self.marker_path.unlink()
-            self._save(state)
+            self._validated = None
+            btx.save(state)
+            if marker is not None:
+                btx.clear_recovery()
+
+
+class FileApprovalStore(ApprovalAuthority):
+    """:class:`ApprovalAuthority` over a :class:`~aais.backends.FileBackend`.
+
+    Several processes may open the same file. See :class:`ApprovalAuthority`
+    for ``stream``, ``presenter_stream``, ``retention``, ``clock``, ``owner``
+    and ``host_id``; ``lock_timeout`` and ``max_bytes`` configure the backend.
+    """
+
+    backend: FileBackend
+
+    def __init__(
+        self,
+        path: str | os.PathLike[str],
+        *,
+        stream: str,
+        presenter_stream: str | None = None,
+        retention: RetentionPolicy | None = None,
+        lock_timeout: float = 10.0,
+        max_bytes: int | None = 64 * 1024 * 1024,
+        clock: Clock | None = None,
+        owner: OwnerIdentity | None = None,
+        host_id: str | None = None,
+    ) -> None:
+        super().__init__(
+            FileBackend(path, lock_timeout=lock_timeout, max_bytes=max_bytes),
+            stream=stream,
+            presenter_stream=presenter_stream,
+            retention=retention,
+            clock=clock,
+            owner=owner,
+            host_id=host_id,
+        )
+
+    @property
+    def path(self) -> Path:
+        return self.backend.path
+
+    @property
+    def lock_path(self) -> Path:
+        return self.backend.lock_path
+
+    @property
+    def marker_path(self) -> Path:
+        return self.backend.marker_path
+
+    @property
+    def lock_timeout(self) -> float:
+        return self.backend.lock_timeout
+
+    @lock_timeout.setter
+    def lock_timeout(self, value: float) -> None:
+        self.backend.lock_timeout = float(value)
+
+    @property
+    def max_bytes(self) -> int | None:
+        return self.backend.max_bytes
+
+    @max_bytes.setter
+    def max_bytes(self, value: int | None) -> None:
+        self.backend.max_bytes = value

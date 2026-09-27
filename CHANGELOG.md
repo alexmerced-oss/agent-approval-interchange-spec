@@ -23,6 +23,20 @@ TypeScript, Go, Rust, and Java libraries are unchanged.
   - `transaction()` supports atomic multi-step logic, and extensions store
     consumer data such as remembered grants;
   - `import_legacy_state()` migrates Loro and MagAgent state files.
+- Split state logic from persistence. `aais.store.ApprovalAuthority(backend,
+  ...)` holds every AAIS rule, and `aais.backends` defines runtime-checkable
+  protocols for storage:
+  - `ApprovalStateBackend`: `transaction`, `version`, `invalidate`, `exists`,
+    `recovery_status`;
+  - `BackendTransaction`: `recovery_marker`, `load`, `save`, `quarantine`,
+    `clear_recovery`.
+  `FileApprovalStore` is now `ApprovalAuthority` over `FileBackend`, with the
+  same constructor, attributes, and behavior. `MemoryBackend` is an
+  in-process reference backend.
+- Added `aais.testing.BackendConformance` and `run_backend_conformance`, a
+  stdlib-only kit that third-party backends (for example a Postgres row store)
+  run to prove locking, versioning, quarantine, and full authority behavior,
+  optionally across processes.
 - Added `aais.liveness`: `OwnerIdentity` records `{pid, process_start_time,
   host_id}`. `owner_liveness` treats a changed start time as dead (PID reuse),
   `EPERM` as alive, and another host as unknown. It uses `/proc` on Linux,

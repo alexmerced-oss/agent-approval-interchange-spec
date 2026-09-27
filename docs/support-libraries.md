@@ -32,7 +32,9 @@ From 0.2.0 the Python library also ships `aais.store.FileApprovalStore`. It is
 an optional, stdlib-only persistence layer for harnesses whose processes share
 one JSON file. It adds cross-process locking, atomic and fsynced writes,
 corruption quarantine, bounded retention with replay-gap reporting, and
-PID-reuse-safe owner liveness around the state machine above. It is an
+PID-reuse-safe owner liveness around the state machine above. The same logic
+is available over other storage through `aais.store.ApprovalAuthority` and the
+`aais.backends` protocols, with a conformance kit in `aais.testing`. It is an
 implementation aid, not part of the AAIS data model, so the other libraries do
 not need an equivalent for conformance. See
 [Python durable file store](python-file-store.md).

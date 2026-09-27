@@ -15,8 +15,8 @@ from typing import Any
 import pytest
 import store_workers as workers
 
-import aais.store as store_module
 from aais import ConflictError, ValidationError, action_digest
+from aais import backends as backend_module
 from aais.liveness import Liveness, OwnerIdentity, current_host_id, process_start_time
 from aais.store import (
     SCHEMA,
@@ -229,7 +229,7 @@ def test_writes_use_unique_same_directory_temp_files_and_fsync(
     store_dir: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     temp_dirs: list[str] = []
-    real_mkstemp = store_module.tempfile.mkstemp
+    real_mkstemp = backend_module.tempfile.mkstemp
 
     def spy_mkstemp(*args: Any, **kwargs: Any) -> tuple[int, str]:
         temp_dirs.append(str(kwargs.get("dir")))
@@ -242,8 +242,8 @@ def test_writes_use_unique_same_directory_temp_files_and_fsync(
         synced.append(os.readlink(f"/proc/self/fd/{descriptor}") if os.path.isdir("/proc") else "?")
         real_fsync(descriptor)
 
-    monkeypatch.setattr(store_module.tempfile, "mkstemp", spy_mkstemp)
-    monkeypatch.setattr(store_module.os, "fsync", spy_fsync)
+    monkeypatch.setattr(backend_module.tempfile, "mkstemp", spy_mkstemp)
+    monkeypatch.setattr(backend_module.os, "fsync", spy_fsync)
     store = make(store_dir)
     add(store)
     assert temp_dirs == [str(store.path.parent)]
@@ -266,7 +266,7 @@ def test_failed_write_leaves_previous_state_and_no_temp_file(
     def broken_replace(*_args: Any) -> None:
         raise OSError("disk full")
 
-    monkeypatch.setattr(store_module.os, "replace", broken_replace)
+    monkeypatch.setattr(backend_module.os, "replace", broken_replace)
     with pytest.raises(OSError, match="disk full"):
         add(store, 2)
     monkeypatch.undo()
@@ -565,10 +565,10 @@ def test_wait_for_resolution_skips_reparsing_unchanged_file(store_dir: Path) -> 
     store = make(store_dir)
     request_id = add(store)["request"]["id"]
     waiter = make(store_dir)
-    parses_before = waiter._parse_count
+    parses_before = waiter.backend.parse_count
     assert waiter.wait_for_resolution(request_id, timeout=0.3, poll_interval=0.01) is None
     # One parse for the first look; ~30 polls of an unchanged file add none.
-    assert waiter._parse_count - parses_before == 1
+    assert waiter.backend.parse_count - parses_before == 1
 
     def resolve_later() -> None:
         time.sleep(0.1)
@@ -579,16 +579,16 @@ def test_wait_for_resolution_skips_reparsing_unchanged_file(store_dir: Path) -> 
     resolution = waiter.wait_for_resolution(request_id, timeout=5, poll_interval=0.01)
     thread.join()
     assert resolution is not None and resolution["resolution"]["outcome"] == "denied"
-    assert waiter._parse_count - parses_before == 2
+    assert waiter.backend.parse_count - parses_before == 2
 
 
 def test_wait_for_resolution_periodic_refresh(store_dir: Path) -> None:
     store = make(store_dir)
     request_id = add(store)["request"]["id"]
-    before = store._parse_count
-    store._cache = None
+    before = store.backend.parse_count
+    store.backend.invalidate()
     store.wait_for_resolution(request_id, timeout=0.25, poll_interval=0.01, refresh_interval=0.1)
-    assert 2 <= store._parse_count - before <= 4
+    assert 2 <= store.backend.parse_count - before <= 4
 
 
 def test_wait_for_resolution_cancel_unknown_and_resolved(store_dir: Path) -> None:
@@ -681,12 +681,12 @@ def test_windows_lock_path_uses_msvcrt_byte_range(
                 raise OSError("locked")
 
     monkeypatch.setitem(sys.modules, "msvcrt", FakeMsvcrt)
-    monkeypatch.setattr(store_module.sys, "platform", "win32")
+    monkeypatch.setattr(backend_module.sys, "platform", "win32")
     descriptor = os.open(store_dir / "fake.lock", os.O_RDWR | os.O_CREAT)
     try:
-        assert store_module._try_lock(descriptor) is False
-        assert store_module._try_lock(descriptor) is True
-        store_module._unlock(descriptor)
+        assert backend_module._try_lock(descriptor) is False
+        assert backend_module._try_lock(descriptor) is True
+        backend_module._unlock(descriptor)
     finally:
         os.close(descriptor)
     assert calls == [(2, 1), (2, 1), (0, 1)]

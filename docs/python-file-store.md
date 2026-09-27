@@ -160,7 +160,9 @@ Module `aais.store`:
 
 | Name | Kind | Summary |
 | --- | --- | --- |
-| `FileApprovalStore(path, *, stream, presenter_stream=None, retention=None, lock_timeout=10.0, max_bytes=64 MiB, clock=None, owner=None, host_id=None)` | class | The store. `presenter_stream` defaults to `"<stream>.presenter"` and is used for decision envelopes. |
+| `ApprovalAuthority(backend, *, stream, presenter_stream=None, retention=None, clock=None, owner=None, host_id=None)` | class | The authority over any backend. `presenter_stream` defaults to `"<stream>.presenter"` and is used for decision envelopes. It exposes `.backend` and every method below. |
+| `FileApprovalStore(path, *, stream, presenter_stream=None, retention=None, lock_timeout=10.0, max_bytes=64 MiB, clock=None, owner=None, host_id=None)` | class | `ApprovalAuthority` over a `FileBackend`. It also has `path`, `lock_path`, `marker_path`, `lock_timeout`, and `max_bytes`. |
+| `.exists()` | → bool | Whether the backend holds any state yet |
 | `.transaction()` | context manager → `StoreTransaction` | Locked read-modify-write |
 | `.add_request(*, action, origin, risk, choices, request_id=None, event_id=None, created_at=None, expires_at=None, ttl=None, owner=None)` | → envelope | Persist a pending `approval.requested` |
 | `.decide(request_id, *, decision, scope, actor, decision_id=None, reviewed_digest=None, current_action=None, require_live_owner=True)` | → envelope | Resolve and return the `approval.resolved` receipt |
@@ -208,8 +210,127 @@ provides these functions and constants:
 - `current_host_id()`;
 - `START_TIME_TOLERANCE_SECONDS`.
 
-The package root re-exports `FileApprovalStore`, `RetentionPolicy`,
-`RecoveryRequired`, `StoreError`, `OwnerIdentity`, and `Liveness`.
+The package root re-exports `ApprovalAuthority`, `FileApprovalStore`,
+`RetentionPolicy`, `RecoveryRequired`, `StoreError`, `OwnerIdentity`, and
+`Liveness`. `aais.store` also re-exports the backend names listed below.
+
+## Pluggable backends
+
+`FileApprovalStore` is `ApprovalAuthority` over `FileBackend`. The authority
+owns all AAIS state logic: sequences, decisions, retention, replay gaps, owner
+liveness, structural validation, and the recovery workflow. A backend owns
+only locking and storage for one JSON document. To keep approvals somewhere
+else, such as a database row shared by several hosts, implement the two
+protocols in `aais.backends` and pass the backend to `ApprovalAuthority`:
+
+```python
+from aais.store import ApprovalAuthority
+
+authority = ApprovalAuthority(MyPostgresBackend(dsn, key="loro.approvals"),
+                              stream="loro.approvals", presenter_stream="loro.presenter")
+```
+
+`ApprovalStateBackend` (runtime-checkable `Protocol`):
+
+| Member | Contract |
+| --- | --- |
+| `description: str` | Location used in error messages and in `RecoveryRequired.path` |
+| `transaction() -> AbstractContextManager[BackendTransaction]` | Exclusive across threads and processes for the whole block. A second transaction on the same storage from the same thread raises `StoreError` rather than deadlocking. Waiting too long raises `LockTimeout`. |
+| `version() -> Hashable \| None` | Cheap, lock-free change marker. It must differ whenever committed state differs; extra changes only cost a read. `wait_for_resolution` uses it. |
+| `invalidate() -> None` | Drop any cached copy (called on the periodic refresh) |
+| `exists() -> bool` | Whether a document is stored (lock-free) |
+| `recovery_status() -> RecoveryRequired \| None` | The recovery-required condition (lock-free) |
+
+`BackendTransaction` (runtime-checkable `Protocol`), valid only inside the
+transaction block:
+
+| Member | Contract |
+| --- | --- |
+| `recovery_marker() -> RecoveryRequired \| None` | The persistent recovery condition |
+| `load() -> Any` | The stored JSON document, or `None`. Raise `CorruptState(reason, raw)` for undecodable data. The authority never mutates the returned object, so it may come from a cache. |
+| `save(state: dict) -> None` | Replace the document |
+| `quarantine(*, reason, detected_at: datetime, sequence_hint: int) -> RecoveryRequired` | Move the damaged document aside and persist the recovery condition. Afterwards `load()` returns `None`. |
+| `clear_recovery() -> None` | Remove the recovery condition |
+
+The authority's side of the contract:
+
+- It calls `save` at most once per transaction, as the last data operation
+  (possibly followed by `clear_recovery`), and never raises after it.
+- It exits the block normally after `quarantine` and raises `RecoveryRequired`
+  only after the backend has committed. A backend that rolls back on
+  exceptions therefore still keeps the quarantine.
+- It validates the document's structure and schema. A backend does not need to
+  understand the state format.
+
+Writes must be durable when the block exits normally. Backends should discard
+writes when the block exits with an exception.
+
+Shipped backends:
+
+- `FileBackend(path, *, lock_timeout=10.0, max_bytes=64 MiB)` is the default
+  described above. It has `path`, `lock_path`, `marker_path`, and
+  `parse_count`.
+- `MemoryBackend(*, lock_timeout=10.0, description="memory")` is the in-process
+  reference implementation. It serializes threads, stages writes until the
+  block exits cleanly, and keeps quarantined documents in `.quarantined`.
+  `store_raw(bytes)` is a test helper that stores undecodable data. Every
+  authority given the same instance shares its state. It is not shared across
+  processes.
+
+Errors defined in `aais.backends` (and re-exported by `aais.store`):
+`StoreError`, `LockTimeout`, `RecoveryRequired`, and `CorruptState(reason,
+raw=None)`, the error a backend raises from `load()`.
+
+### Backend conformance kit
+
+`aais.testing.BackendConformance` is a stdlib-only set of checks that a
+third-party backend can run. Subclass it in your test suite with a class name
+that starts with `Test`, so that pytest collects it:
+
+```python
+import uuid
+from aais.testing import BackendConformance
+
+class TestPostgresBackend(BackendConformance):
+    def make_backend(self):                        # required: fresh, empty storage
+        return PostgresBackend(DSN, key=f"conformance-{uuid.uuid4().hex}")
+
+    def reopen_backend(self, backend):             # another handle to the same storage
+        return PostgresBackend(DSN, key=backend.key)
+
+    def subprocess_backend_factory(self, backend): # optional: enables the multi-process check
+        return PostgresBackend, (DSN, backend.key)
+
+    # def corrupt_backend(self, backend, raw: bytes): optional, store undecodable bytes
+```
+
+Hooks that are not implemented skip their checks with `unittest.SkipTest`.
+`add_cleanup(fn, *args)` registers teardown work, such as removing a
+temporary directory. Without pytest, `run_backend_conformance(suite,
+raise_on_failure=True) -> ConformanceReport` (with `passed`, `skipped`,
+`failed`, and `ok`) runs every check.
+
+The checks cover:
+
+- the protocols;
+- empty storage, round trips, and a second handle;
+- `version()` stability and change;
+- no change when a transaction raises before `save`;
+- fast failure of nested transactions on one thread;
+- no lost updates across racing threads;
+- quarantine persistence and clearing;
+- the full authority behavior on the backend: lifecycle, replay and conflict,
+  contiguous sequences, retention gaps, cross-handle waiting, extensions,
+  legacy import, newer-schema refusal, and quarantine plus acknowledgement of
+  invalid state;
+- optionally, undecodable bytes and contiguous sequences across three spawned
+  processes.
+
+The library runs the kit against `MemoryBackend` and `FileBackend`. A
+prototype Postgres backend passed it: one JSONB row per stream, locked with
+`SELECT ... FOR UPDATE`, with `version` as a row counter and quarantine kept
+in a JSONB column. Its multi-process check also passed. That backend is not
+shipped with this library.
 
 ## Migrating an existing harness store
 

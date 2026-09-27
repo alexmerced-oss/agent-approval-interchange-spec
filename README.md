@@ -75,8 +75,10 @@ through one JSON file. It locks whole transactions across processes, writes
 atomically with fsync, quarantines corrupt state instead of reading it as
 empty, compacts resolved history with an explicit replay-gap signal, and
 tracks owners by PID, start time, and host so that PID reuse cannot keep a
-stopped owner alive. See the [Python durable file store](docs/python-file-store.md)
-guide.
+stopped owner alive. Storage is pluggable: `ApprovalAuthority` accepts any
+backend that implements the `aais.backends` protocols, and `aais.testing`
+provides a conformance kit for third-party backends. See the
+[Python durable file store](docs/python-file-store.md) guide.
 
 Published packages:
 

@@ -11,9 +11,16 @@ from .core import (
     validate,
 )
 from .liveness import Liveness, OwnerIdentity
-from .store import FileApprovalStore, RecoveryRequired, RetentionPolicy, StoreError
+from .store import (
+    ApprovalAuthority,
+    FileApprovalStore,
+    RecoveryRequired,
+    RetentionPolicy,
+    StoreError,
+)
 
 __all__ = [
+    "ApprovalAuthority",
     "ApprovalError",
     "ApprovalStore",
     "ConflictError",
