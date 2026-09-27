@@ -6,6 +6,7 @@ repo_dir="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$repo_dir"
 python -m pytest -q
 python -m ruff check aais tests
+python -m mypy
 
 cd "$repo_dir/typescript"
 npm run check

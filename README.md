@@ -69,6 +69,15 @@ conformance corpus for Python, TypeScript, Go, Rust, and Java. Each library can:
 - maintain a fail-closed, replay-safe pending-approval store;
 - emit and restore durable snapshots.
 
+The Python library adds `aais.store.FileApprovalStore` in 0.2.0 (unreleased).
+It is a stdlib-only approval authority that several processes can share
+through one JSON file. It locks whole transactions across processes, writes
+atomically with fsync, quarantines corrupt state instead of reading it as
+empty, compacts resolved history with an explicit replay-gap signal, and
+tracks owners by PID, start time, and host so that PID reuse cannot keep a
+stopped owner alive. See the [Python durable file store](docs/python-file-store.md)
+guide.
+
 Published packages:
 
 - [PyPI](https://pypi.org/project/agent-approval-interchange/0.1.0/)

@@ -2,6 +2,37 @@
 
 ## Unreleased
 
+### Python library 0.2.0 (unreleased)
+
+The specification, schema, and conformance corpus are unchanged. The
+TypeScript, Go, Rust, and Java libraries are unchanged.
+
+- Added `aais.store.FileApprovalStore`, a durable approval authority that
+  several processes can share through one JSON file:
+  - every transaction holds an `fcntl.flock` or `msvcrt.locking` lock, covering
+    sequence allocation, pending insertion, resolution, and receipts;
+  - writes use a unique temp file in the same directory, fsync the file and
+    the directory (`F_FULLFSYNC` on macOS), and replace atomically;
+  - corrupt state is moved to `<file>.corrupt-<UTC timestamp>` and raises
+    `RecoveryRequired` until `acknowledge_recovery()`; it is never read as
+    empty;
+  - `RetentionPolicy` bounds resolved requests, decisions, receipts, owners,
+    and the event log by count and age;
+  - `events_after(seq)` returns an `EventPage` with an explicit `gap` flag;
+  - `wait_for_resolution()` re-parses the file only when its metadata changes;
+  - `transaction()` supports atomic multi-step logic, and extensions store
+    consumer data such as remembered grants;
+  - `import_legacy_state()` migrates Loro and MagAgent state files.
+- Added `aais.liveness`: `OwnerIdentity` records `{pid, process_start_time,
+  host_id}`. `owner_liveness` treats a changed start time as dead (PID reuse),
+  `EPERM` as alive, and another host as unknown. It uses `/proc` on Linux,
+  `ps` on macOS, and `OpenProcess`/`GetProcessTimes` on Windows.
+- The package now ships `py.typed` and is checked with `mypy --strict` in CI.
+  CI also runs the Python suite, including spawn-based multi-process
+  contention tests, on Windows and macOS.
+
+### Specification and docs
+
 - Added a WebMCP integration profile for presenting exact, revision-bound browser actions while
   keeping policy authority in the harness and credentials in the browser context.
 - Documented read-only hints, mutating-call confirmation, stale registries, expiry, redaction,

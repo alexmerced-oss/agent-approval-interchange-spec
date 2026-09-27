@@ -11,6 +11,7 @@ language's conventions.
 | Decision builder | `create_decision` | `createDecision` | `CreateDecision` | `create_decision` | `Aais.createDecision` |
 | State machine | `ApprovalStore` | `ApprovalStore` | `Store` | `ApprovalStore` | `ApprovalStore` |
 | Durable snapshot | `snapshot`, `from_snapshot` | `snapshot`, `fromSnapshot` | `Snapshot`, `FromSnapshot` | `snapshot`, `from_snapshot` | `snapshot`, `fromSnapshot` |
+| Cross-process file store | `aais.store.FileApprovalStore` (0.2.0) | none | none | none | none |
 
 ## State-machine contract
 
@@ -25,8 +26,20 @@ Snapshot methods accept a current instant (or use the current clock) and omit
 expired requests. Restore methods validate every pending request before making
 it visible.
 
+## Python durable file store
+
+From 0.2.0 the Python library also ships `aais.store.FileApprovalStore`. It is
+an optional, stdlib-only persistence layer for harnesses whose processes share
+one JSON file. It adds cross-process locking, atomic and fsynced writes,
+corruption quarantine, bounded retention with replay-gap reporting, and
+PID-reuse-safe owner liveness around the state machine above. It is an
+implementation aid, not part of the AAIS data model, so the other libraries do
+not need an equivalent for conformance. See
+[Python durable file store](python-file-store.md).
+
 ## What the libraries do not do
 
-The support libraries do not authenticate actors, persist data, evaluate local
-policy, execute actions, or run HTTP/WebSocket servers. A harness supplies
-those responsibilities and revalidates policy immediately before execution.
+The support libraries do not authenticate actors, evaluate local policy,
+execute actions, or run HTTP/WebSocket servers. Apart from the optional Python
+file store, they do not persist data. A harness supplies those
+responsibilities and revalidates policy immediately before execution.
