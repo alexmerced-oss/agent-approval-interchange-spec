@@ -29,6 +29,10 @@ language libraries are versioned independently (see `VERSIONING.md`).
   - `transaction()` supports atomic multi-step logic, and extensions store
     consumer data such as remembered grants;
   - `import_legacy_state()` migrates Loro and MagAgent state files.
+- The package ships `py.typed`, so type checkers now read these annotations.
+  `create_request()` and `add_request()` take `choices` as
+  `Sequence[Mapping[str, Any]]`, so a caller's `list[dict[str, Any]]` type-checks. A
+  `list[Mapping[str, Any]]` annotation would reject it, because `list` is invariant.
 - Split state logic from persistence. `aais.store.ApprovalAuthority(backend,
   ...)` holds every AAIS rule, and `aais.backends` defines runtime-checkable
   protocols for storage:

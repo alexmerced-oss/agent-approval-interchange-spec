@@ -5,7 +5,7 @@ from __future__ import annotations
 import copy
 import hashlib
 import json
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from importlib.resources import files
@@ -103,7 +103,7 @@ def create_request(
     action: Mapping[str, Any],
     origin: Mapping[str, Any],
     risk: Mapping[str, Any],
-    choices: list[Mapping[str, Any]],
+    choices: Sequence[Mapping[str, Any]],
     sequence: int,
     stream: str | None = None,
     request_id: str | None = None,

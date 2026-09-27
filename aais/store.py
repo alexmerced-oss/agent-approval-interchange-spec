@@ -37,7 +37,7 @@ import re
 import threading
 import time
 import uuid
-from collections.abc import Callable, Hashable, Iterator, Mapping
+from collections.abc import Callable, Hashable, Iterator, Mapping, Sequence
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -389,7 +389,7 @@ class StoreTransaction:
         action: Mapping[str, Any],
         origin: Mapping[str, Any],
         risk: Mapping[str, Any],
-        choices: list[Mapping[str, Any]],
+        choices: Sequence[Mapping[str, Any]],
         request_id: str | None = None,
         event_id: str | None = None,
         created_at: str | None = None,
@@ -748,7 +748,7 @@ class ApprovalAuthority:
         action: Mapping[str, Any],
         origin: Mapping[str, Any],
         risk: Mapping[str, Any],
-        choices: list[Mapping[str, Any]],
+        choices: Sequence[Mapping[str, Any]],
         request_id: str | None = None,
         event_id: str | None = None,
         created_at: str | None = None,
