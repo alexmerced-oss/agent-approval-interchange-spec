@@ -2,7 +2,7 @@
 
 **A transport-neutral contract for asking a human to authorize an exact agent action.**
 
-Specification `1.0` release candidate · support libraries `0.1.0` · Released
+Specification `1.0` release candidate · support libraries `0.1.0` · Released · Python library `0.2.0` in development (unreleased)
 
 [Specification](spec/v1/SPEC.md) · [Security](spec/v1/security.md) · [Conformance](spec/v1/conformance.md) · [Integration guide](docs/integration.md) · [WebMCP mapping](docs/webmcp.md)
 

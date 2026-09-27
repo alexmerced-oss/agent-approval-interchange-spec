@@ -11,7 +11,7 @@ language's conventions.
 | Decision builder | `create_decision` | `createDecision` | `CreateDecision` | `create_decision` | `Aais.createDecision` |
 | State machine | `ApprovalStore` | `ApprovalStore` | `Store` | `ApprovalStore` | `ApprovalStore` |
 | Durable snapshot | `snapshot`, `from_snapshot` | `snapshot`, `fromSnapshot` | `Snapshot`, `FromSnapshot` | `snapshot`, `from_snapshot` | `snapshot`, `fromSnapshot` |
-| Cross-process file store | `aais.store.FileApprovalStore` (0.2.0) | none | none | none | none |
+| Cross-process file store | `aais.store.FileApprovalStore` (0.2.0, unreleased) | none | none | none | none |
 
 ## State-machine contract
 
@@ -28,7 +28,7 @@ it visible.
 
 ## Python durable file store
 
-From 0.2.0 the Python library also ships `aais.store.FileApprovalStore`. It is
+From 0.2.0 (unreleased) the Python library also ships `aais.store.FileApprovalStore`. It is
 an optional, stdlib-only persistence layer for harnesses whose processes share
 one JSON file. It adds cross-process locking, atomic and fsynced writes,
 corruption quarantine, bounded retention with replay-gap reporting, and
