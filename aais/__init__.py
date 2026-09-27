@@ -10,11 +10,19 @@ from .core import (
     create_request,
     validate,
 )
+from .liveness import Liveness, OwnerIdentity
+from .store import FileApprovalStore, RecoveryRequired, RetentionPolicy, StoreError
 
 __all__ = [
     "ApprovalError",
     "ApprovalStore",
     "ConflictError",
+    "FileApprovalStore",
+    "Liveness",
+    "OwnerIdentity",
+    "RecoveryRequired",
+    "RetentionPolicy",
+    "StoreError",
     "ValidationError",
     "action_digest",
     "create_decision",

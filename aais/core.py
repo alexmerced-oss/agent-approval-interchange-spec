@@ -34,9 +34,12 @@ class ConflictError(ApprovalError):
 def _schema() -> JsonObject:
     installed = files("aais").joinpath("schema/aais-1.0.schema.json")
     if installed.is_file():
-        return json.loads(installed.read_text(encoding="utf-8"))
-    source = Path(__file__).resolve().parents[1] / "schema/v1/aais-1.0.schema.json"
-    return json.loads(source.read_text(encoding="utf-8"))
+        text = installed.read_text(encoding="utf-8")
+    else:
+        source = Path(__file__).resolve().parents[1] / "schema/v1/aais-1.0.schema.json"
+        text = source.read_text(encoding="utf-8")
+    schema: JsonObject = json.loads(text)
+    return schema
 
 
 _VALIDATOR = jsonschema.Draft202012Validator(

@@ -20,7 +20,7 @@ classifiers = [
 dependencies = ["jsonschema>=4.18", "rfc8785>=0.1.4,<0.2"]
 
 [project.optional-dependencies]
-dev = ["pytest>=8", "build>=1.2", "twine>=5", "ruff>=0.12"]
+dev = ["pytest>=8", "build>=1.2", "twine>=5", "ruff>=0.12", "mypy>=1.10", "types-jsonschema"]
 
 [project.urls]
 Homepage = "https://github.com/alexmerced-oss/agent-approval-interchange-spec"
@@ -40,6 +40,11 @@ include = ["aais", "schema", "spec", "conformance", "examples", "tests", "docs",
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+
+[tool.mypy]
+python_version = "3.10"
+strict = true
+files = ["aais"]
 
 [tool.ruff]
 line-length = 100
