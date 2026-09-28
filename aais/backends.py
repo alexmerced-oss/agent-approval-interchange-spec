@@ -521,9 +521,10 @@ class FileBackend:
             except OSError as error:
                 raise StoreError(f"unable to open lock file {self.lock_path}: {error}") from error
             try:
-                if sys.platform == "win32":  # pragma: no cover - msvcrt locks a byte range
-                    if os.fstat(descriptor).st_size == 0:
-                        os.write(descriptor, b"0")
+                # On Windows msvcrt locks byte 0. Windows lets a process lock a byte
+                # past end-of-file, so the lock file stays empty. Writing a placeholder
+                # byte first raced with a process that already held byte 0 locked and
+                # failed with PermissionError.
                 delay = 0.001
                 while not _try_lock(descriptor):
                     if time.monotonic() >= deadline:
