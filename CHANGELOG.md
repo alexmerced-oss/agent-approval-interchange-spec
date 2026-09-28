@@ -1,6 +1,6 @@
 # Changelog
 
-## Python library 0.2.0 (2026-09-27)
+## Python library 0.2.0 (2026-09-28)
 
 The specification, schema, and conformance corpus are unchanged. The
 TypeScript, Go, Rust, and Java libraries are unchanged and stay at 0.1.0; the
