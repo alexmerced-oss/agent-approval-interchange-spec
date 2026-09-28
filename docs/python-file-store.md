@@ -1,6 +1,6 @@
 # Python durable file store (`aais.store`)
 
-Status: new in the Python library `agent-approval-interchange` 0.2.0 (unreleased).
+Status: new in the Python library `agent-approval-interchange` 0.2.0.
 Python only; the TypeScript, Go, Rust, and Java libraries are unchanged.
 
 `aais.store.FileApprovalStore` is a ready-made approval authority for a harness

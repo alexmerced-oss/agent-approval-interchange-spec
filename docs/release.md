@@ -23,3 +23,13 @@ Published 0.1.0 coordinates:
 - Go: `github.com/alexmerced-oss/agent-approval-interchange-spec/go`
 - crates.io: `agent-approval-interchange`
 - Maven Central: `io.github.alexmercedcoder:agent-approval-interchange`
+
+## Python library 0.2.0
+
+The Python library is versioned independently of the other language libraries and the
+specification (see `VERSIONING.md`). Python-only releases use a `python/vX.Y.Z` tag, following
+the `go/vX.Y.Z` precedent; `v0.1.0` tagged every language library at once.
+
+- PyPI: `agent-approval-interchange` 0.2.0, tag `python/v0.2.0`
+- Specification, schema, conformance corpus, and the TypeScript, Go, Rust, and Java libraries are
+  unchanged at their 0.1.0 releases.

@@ -2,7 +2,7 @@
 
 **A transport-neutral contract for asking a human to authorize an exact agent action.**
 
-Specification `1.0` release candidate · support libraries `0.1.0` · Released · Python library `0.2.0` in development (unreleased)
+Specification `1.0` release candidate · support libraries `0.1.0` · Released · Python library `0.2.0` released
 
 [Specification](spec/v1/SPEC.md) · [Security](spec/v1/security.md) · [Conformance](spec/v1/conformance.md) · [Integration guide](docs/integration.md) · [WebMCP mapping](docs/webmcp.md)
 
@@ -69,7 +69,7 @@ conformance corpus for Python, TypeScript, Go, Rust, and Java. Each library can:
 - maintain a fail-closed, replay-safe pending-approval store;
 - emit and restore durable snapshots.
 
-The Python library adds `aais.store.FileApprovalStore` in 0.2.0 (unreleased).
+The Python library adds `aais.store.FileApprovalStore` in 0.2.0.
 It is a stdlib-only approval authority that several processes can share
 through one JSON file. It locks whole transactions across processes, writes
 atomically with fsync, quarantines corrupt state instead of reading it as
