@@ -6,10 +6,8 @@ The specification, schema, and conformance corpus are unchanged. The
 TypeScript, Go, Rust, and Java libraries are unchanged and stay at 0.1.0; the
 language libraries are versioned independently (see `VERSIONING.md`).
 
-- Set the in-tree Python package version (`pyproject.toml` and
-  `aais.__version__`) to 0.2.0 ahead of release, so that dependents that
-  require `agent-approval-interchange>=0.2.0,<0.3` can install from a
-  checkout. It has not been tagged or published.
+- Published to PyPI as `agent-approval-interchange` 0.2.0 and tagged
+  `python/v0.2.0`. `aais.__version__` matches `pyproject.toml`.
 
 - Added `aais.store.FileApprovalStore`, a durable approval authority that
   several processes can share through one JSON file:
