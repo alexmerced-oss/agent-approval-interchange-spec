@@ -119,3 +119,7 @@ See [release preparation](docs/release.md) for coordinates and verification.
 ## License
 
 Apache License 2.0. See [LICENSE](LICENSE).
+
+## Maintenance
+
+[Maintenance findings, acceptance checks and completion log](docs/maintenance.md).
