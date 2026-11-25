@@ -6,7 +6,7 @@ Claim a row by entering your name or task ID and setting the status to **In prog
 
 | ID | Priority | Status | Owner | Fix and verification |
 | --- | --- | --- | --- | --- |
-| AAIS-01 | P2 | Open | — | — |
+| AAIS-01 | P2 | Done | — | `2b7bb11`. 132 passed and 3 skipped. Direct CLI checks returned clean diagnostics for null and invalid UTF-8. The valid example passed. |
 
 ### AAIS-01 · Return consistent validation diagnostics for invalid envelopes
 
