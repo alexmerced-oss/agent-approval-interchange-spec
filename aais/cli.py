@@ -15,7 +15,7 @@ def main() -> int:
     args = parser.parse_args()
     try:
         validate(json.loads(args.document.read_text(encoding="utf-8")))
-    except (OSError, json.JSONDecodeError, ValidationError) as exc:
+    except (OSError, UnicodeError, json.JSONDecodeError, ValidationError) as exc:
         parser.exit(1, f"invalid: {exc}\n")
     print("valid")
     return 0

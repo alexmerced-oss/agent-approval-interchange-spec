@@ -60,6 +60,8 @@ def _parse_time(value: str) -> datetime:
 def validate(document: Mapping[str, Any]) -> JsonObject:
     """Validate and return a defensive copy of an AAIS envelope."""
 
+    if not isinstance(document, Mapping):
+        raise ValidationError("/: envelope must be an object")
     candidate = copy.deepcopy(dict(document))
     errors = sorted(_VALIDATOR.iter_errors(candidate), key=lambda error: list(error.path))
     if errors:
