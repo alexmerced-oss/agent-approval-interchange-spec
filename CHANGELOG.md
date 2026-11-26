@@ -1,5 +1,10 @@
 # Changelog
 
+## Python library 0.2.1 (2026-11-26)
+
+- Reject non-object approval envelopes with the documented validation error.
+- Report invalid UTF-8 in the validation CLI without a traceback.
+
 ## Python library 0.2.0 (2026-09-28)
 
 The specification, schema, and conformance corpus are unchanged. The
